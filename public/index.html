@@ -87,6 +87,15 @@
   .builder-divider { text-align: center; padding: 1rem 2rem 0; }
   .builder-divider-label { display: inline-block; font-size: 0.85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
 
+  /* ── MODALS ── */
+  .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(12,42,77,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1.5rem; }
+  .modal-box { background: var(--surface); border-radius: 16px; padding: 1.75rem; max-width: 420px; width: 100%; box-shadow: 0 20px 60px rgba(12,42,77,0.25); }
+  .saved-quiz-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--surface2); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.6rem; }
+  .saved-quiz-info { flex: 1; min-width: 0; }
+  .saved-quiz-name { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .saved-quiz-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+  .saved-quiz-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+
   .logo { font-size: 2rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 0.25rem; }
   .logo span { color: var(--accent); }
   .tagline { color: var(--muted); margin-bottom: 1.5rem; }
@@ -108,9 +117,7 @@
   .excel-drop-icon { font-size: 1.8rem; color: var(--accent); margin-bottom: 0.5rem; }
   .template-link { display: inline-block; margin-top: 1rem; font-size: 0.85rem; color: var(--accent); text-decoration: none; font-weight: 600; }
   .template-link:hover { text-decoration: underline; }
-  .excel-preview-row { background: var(--surface2); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; font-size: 0.88rem; }
-  .excel-preview-row .ep-type { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--accent); margin-bottom: 0.2rem; }
-  .excel-preview-row .ep-error { color: var(--red); font-size: 0.8rem; margin-top: 0.3rem; }
+  .ep-error { color: var(--red); font-size: 0.8rem; padding: 0.5rem 0.75rem; background: rgba(192,57,43,0.08); border-radius: 6px; line-height: 1.4; }
 
   .question-row { background: var(--surface2); border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
   .qrow-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
@@ -345,6 +352,8 @@
   </div>
   <p class="mode-desc" id="mode-desc">Scored multiple-choice questions with a live leaderboard — best for trivia games.</p>
 
+  <button class="btn btn-secondary btn-sm" onclick="openLoadQuizModal()" style="margin-bottom:1.25rem;">📂 Load a saved quiz</button>
+
   <div class="entry-toggle">
     <button class="entry-btn active" id="entry-manual-btn" onclick="setEntryMode('manual')">Manual Entry</button>
     <button class="entry-btn" id="entry-excel-btn" onclick="setEntryMode('excel')">Upload Excel</button>
@@ -360,9 +369,14 @@
     </div>
   </div>
 
-  <button class="btn btn-primary" onclick="createRoom()" id="start-btn" style="font-size:1.05rem; padding: 0.9rem 2rem;">
-    Create game room →
-  </button>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="createRoom()" id="start-btn" style="font-size:1.05rem; padding: 0.9rem 2rem;">
+      Create game room →
+    </button>
+    <button class="btn btn-secondary" onclick="openSaveQuizModal('questions')" style="font-size:1.05rem; padding: 0.9rem 1.5rem;">
+      💾 Save for later
+    </button>
+  </div>
   </div>
 
   <div id="entry-excel-panel" style="display:none;">
@@ -384,10 +398,42 @@
       <div id="excel-preview-list"></div>
     </div>
 
-    <button class="btn btn-primary" onclick="createRoom()" id="excel-start-btn" style="font-size:1.05rem; padding: 0.9rem 2rem; display:none;">
-      Create game room →
-    </button>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="createRoom()" id="excel-start-btn" style="font-size:1.05rem; padding: 0.9rem 2rem; display:none;">
+        Create game room →
+      </button>
+      <button class="btn btn-secondary" onclick="openSaveQuizModal('excelQuestions')" id="excel-save-btn" style="font-size:1.05rem; padding: 0.9rem 1.5rem; display:none;">
+        💾 Save for later
+      </button>
+    </div>
   </div>
+  </div>
+</div>
+
+<!-- SAVE QUIZ MODAL -->
+<div id="save-quiz-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSaveQuizModal()">
+  <div class="modal-box">
+    <h2 style="font-size:1.1rem; margin-bottom:1rem;">Save this quiz</h2>
+    <label class="q-label">Quiz name</label>
+    <input type="text" id="save-quiz-name" placeholder="e.g. Friday Trivia Night" maxlength="80" style="width:100%; margin-bottom:1rem;" />
+    <div id="save-quiz-error" style="color:var(--red); font-size:0.85rem; margin-bottom:0.75rem; min-height:1.2em;"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="confirmSaveQuiz()">Save</button>
+      <button class="btn btn-secondary" onclick="closeSaveQuizModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOAD QUIZ MODAL -->
+<div id="load-quiz-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeLoadQuizModal()">
+  <div class="modal-box" style="max-width:560px;">
+    <h2 style="font-size:1.1rem; margin-bottom:1rem;">Load a saved quiz</h2>
+    <div id="load-quiz-list" style="max-height:400px; overflow-y:auto;">
+      <p style="color:var(--muted); font-size:0.9rem;">Loading…</p>
+    </div>
+    <div class="btn-row" style="margin-top:1rem;">
+      <button class="btn btn-secondary" onclick="closeLoadQuizModal()">Close</button>
+    </div>
   </div>
 </div>
 
