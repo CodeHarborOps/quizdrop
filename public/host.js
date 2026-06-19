@@ -194,31 +194,29 @@ function processExcelRows(rows) {
 }
 
 function renderExcelPreview(parsed, errorCount) {
-  const statusEl = document.getElementById('excel-status');
   const previewCard = document.getElementById('excel-preview-card');
-  const previewList = document.getElementById('excel-preview-list');
-  const startBtn = document.getElementById('excel-start-btn');
-
-  document.getElementById('excel-q-count').textContent = parsed.length;
   previewCard.style.display = 'block';
+  renderQuestionRows('excelQuestions', 'excel-preview-list', 'excel-q-count');
+  updateExcelStatus();
+}
 
-  previewList.innerHTML = parsed.map((q, i) => `
-    <div class="excel-preview-row">
-      <div class="ep-type">${escHtml(q.type.replace('_',' '))}</div>
-      <div>${escHtml(q.text) || '<em>(missing question text)</em>'}</div>
-      ${q._rowErrors && q._rowErrors.length ? `<div class="ep-error">${q._rowErrors.map(escHtml).join('<br>')}</div>` : ''}
-    </div>
-  `).join('');
+function updateExcelStatus() {
+  const statusEl = document.getElementById('excel-status');
+  const startBtn = document.getElementById('excel-start-btn');
+  const errorCount = excelQuestions.filter(q => q._rowErrors && q._rowErrors.length).length;
 
   if (errorCount > 0) {
-    statusEl.textContent = `Found ${parsed.length} questions, ${errorCount} with issues — fix them in your spreadsheet and re-upload, or they'll be skipped.`;
+    statusEl.textContent = `${excelQuestions.length} questions loaded, ${errorCount} still have issues — edit them above or they'll be skipped when you create the room.`;
     statusEl.style.color = 'var(--accent2)';
   } else {
-    statusEl.textContent = `✓ ${parsed.length} questions ready to go.`;
+    statusEl.textContent = `✓ ${excelQuestions.length} questions ready to go.`;
     statusEl.style.color = 'var(--green)';
   }
 
-  startBtn.style.display = parsed.some(q => !q._rowErrors || q._rowErrors.length === 0) ? 'inline-flex' : 'none';
+  const hasValid = excelQuestions.some(q => !q._rowErrors || q._rowErrors.length === 0);
+  startBtn.style.display = hasValid ? 'inline-flex' : 'none';
+  const saveBtn = document.getElementById('excel-save-btn');
+  if (saveBtn) saveBtn.style.display = hasValid ? 'inline-flex' : 'none';
 }
 
 
@@ -241,10 +239,15 @@ function addQuestion() {
 }
 
 function renderQuestions() {
-  const container = document.getElementById('questions-container');
-  document.getElementById('q-count-label').textContent = questions.length;
+  renderQuestionRows('questions', 'questions-container', 'q-count-label');
+}
 
-  container.innerHTML = questions.map((q, i) => {
+function renderQuestionRows(arrName, containerId, countLabelId) {
+  const container = document.getElementById(containerId);
+  const list = arrName === 'questions' ? questions : excelQuestions;
+  if (countLabelId) document.getElementById(countLabelId).textContent = list.length;
+
+  container.innerHTML = list.map((q, i) => {
     const typeOptions = gameMode === 'trivia'
       ? `
         <option value="multiple_choice" ${q.type==='multiple_choice'?'selected':''}>Multiple choice</option>
@@ -266,19 +269,21 @@ function renderQuestions() {
     };
     const [badgeClass, badgeLabel] = badgeMap[q.type] || badgeMap.multiple_choice;
     const badge = `<span class="type-badge ${badgeClass}">${badgeLabel}</span>`;
+    const errorBanner = (q._rowErrors && q._rowErrors.length)
+      ? `<div class="ep-error" style="margin-bottom:0.5rem;">${q._rowErrors.map(escHtml).join('<br>')}</div>`
+      : '';
 
-    let body = `
+    let body = errorBanner + `
       <input type="text" placeholder="Question text…" value="${escHtml(q.text)}"
-        oninput="questions[${i}].text = this.value" style="width:100%; margin:0.5rem 0;" />
+        oninput="${arrName}[${i}].text = this.value; revalidateRow('${arrName}',${i})" style="width:100%; margin:0.5rem 0;" />
     `;
 
-    // Image upload (all types)
     body += `
       <div class="image-upload-row">
-        <input type="file" accept="image/*" id="img-input-${i}" style="display:none;" onchange="handleImageUpload(${i}, this)" />
+        <input type="file" accept="image/*" id="img-input-${arrName}-${i}" style="display:none;" onchange="handleImageUpload('${arrName}', ${i}, this)" />
         ${q.image
-          ? `<div class="image-preview-wrap"><img src="${q.image}" class="image-preview" /><button type="button" class="btn btn-secondary btn-sm" onclick="removeImage(${i})">Remove photo</button></div>`
-          : `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('img-input-${i}').click()">+ Add photo</button>`
+          ? `<div class="image-preview-wrap"><img src="${q.image}" class="image-preview" /><button type="button" class="btn btn-secondary btn-sm" onclick="removeImage('${arrName}', ${i})">Remove photo</button></div>`
+          : `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('img-input-${arrName}-${i}').click()">+ Add photo</button>`
         }
       </div>
     `;
@@ -288,14 +293,14 @@ function renderQuestions() {
         <div class="options-list">
           ${q.options.map((opt, j) => `
             <div class="option-wrap">
-              ${gameMode === 'trivia' ? `<input type="radio" name="correct-${i}" value="${j}" ${q.correct===j?'checked':''} onchange="questions[${i}].correct=${j}" />` : ''}
+              ${gameMode === 'trivia' ? `<input type="radio" name="correct-${arrName}-${i}" value="${j}" ${q.correct===j?'checked':''} onchange="${arrName}[${i}].correct=${j}" />` : ''}
               <input type="text" placeholder="Option ${j+1}" value="${escHtml(opt)}"
-                oninput="questions[${i}].options[${j}] = this.value" />
-              ${q.options.length > 2 ? `<button type="button" class="remove-opt-btn" onclick="removeOption(${i},${j})">✕</button>` : ''}
+                oninput="${arrName}[${i}].options[${j}] = this.value; revalidateRow('${arrName}',${i})" />
+              ${q.options.length > 2 ? `<button type="button" class="remove-opt-btn" onclick="removeOption('${arrName}', ${i},${j})">✕</button>` : ''}
             </div>
           `).join('')}
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="addOption(${i})" style="margin-top:0.5rem;">+ Add option</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addOption('${arrName}', ${i})" style="margin-top:0.5rem;">+ Add option</button>
       `;
       if (gameMode === 'survey') {
         body += `
@@ -303,19 +308,19 @@ function renderQuestions() {
             <label>Display style</label>
             <div class="style-pills">
               ${['bars','donut','pie','dots'].map(s => `
-                <button type="button" class="style-pill ${q.displayStyle===s?'active':''}" onclick="setQuestionStyle(${i},'${s}')">${s}</button>
+                <button type="button" class="style-pill ${q.displayStyle===s?'active':''}" onclick="setQuestionStyle('${arrName}', ${i},'${s}')">${s}</button>
               `).join('')}
             </div>
           </div>
           <div class="row-meta">
             <label class="toggle-row">
-              <span class="toggle-switch ${q.allowMultiple?'on':''}" onclick="toggleQuestionFlag(${i},'allowMultiple')"></span>
+              <span class="toggle-switch ${q.allowMultiple?'on':''}" onclick="toggleQuestionFlag('${arrName}', ${i},'allowMultiple')"></span>
               Allow multiple selections
             </label>
           </div>
           <div class="row-meta">
             <label class="toggle-row">
-              <span class="toggle-switch ${q.showPercentage?'on':''}" onclick="toggleQuestionFlag(${i},'showPercentage')"></span>
+              <span class="toggle-switch ${q.showPercentage?'on':''}" onclick="toggleQuestionFlag('${arrName}', ${i},'showPercentage')"></span>
               Show results as percentage
             </label>
           </div>
@@ -326,8 +331,8 @@ function renderQuestions() {
         <div class="row-meta">
           <label>Correct answer</label>
           <div class="style-pills">
-            <button type="button" class="style-pill ${q.correct===0?'active':''}" onclick="setTrueFalse(${i},0)">True</button>
-            <button type="button" class="style-pill ${q.correct===1?'active':''}" onclick="setTrueFalse(${i},1)">False</button>
+            <button type="button" class="style-pill ${q.correct===0?'active':''}" onclick="setTrueFalse('${arrName}', ${i},0)">True</button>
+            <button type="button" class="style-pill ${q.correct===1?'active':''}" onclick="setTrueFalse('${arrName}', ${i},1)">False</button>
           </div>
         </div>
       `;
@@ -338,12 +343,12 @@ function renderQuestions() {
           ${q.acceptedAnswers.map((a, j) => `
             <div class="option-wrap">
               <input type="text" placeholder="${j===0?'Correct answer':'Alternative spelling/phrasing'}" value="${escHtml(a)}"
-                oninput="questions[${i}].acceptedAnswers[${j}] = this.value" />
-              ${q.acceptedAnswers.length > 1 ? `<button type="button" class="remove-opt-btn" onclick="removeAcceptedAnswer(${i},${j})">✕</button>` : ''}
+                oninput="${arrName}[${i}].acceptedAnswers[${j}] = this.value; revalidateRow('${arrName}',${i})" />
+              ${q.acceptedAnswers.length > 1 ? `<button type="button" class="remove-opt-btn" onclick="removeAcceptedAnswer('${arrName}', ${i},${j})">✕</button>` : ''}
             </div>
           `).join('')}
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="addAcceptedAnswer(${i})" style="margin-top:0.5rem;">+ Add alternative answer</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addAcceptedAnswer('${arrName}', ${i})" style="margin-top:0.5rem;">+ Add alternative answer</button>
         <p style="font-size:0.78rem; color:var(--muted); margin-top:0.4rem;">Not case sensitive. Extra spaces are ignored.</p>
       `;
     } else if (q.type === 'word_cloud') {
@@ -355,21 +360,21 @@ function renderQuestions() {
     body += `
       <div class="row-meta">
         <label>Time limit</label>
-        <select onchange="questions[${i}].timeLimit=+this.value">
+        <select onchange="${arrName}[${i}].timeLimit=+this.value">
           ${[10,15,20,30,45,60,90,120].map(t => `<option value="${t}" ${q.timeLimit===t?'selected':''}>${t}s</option>`).join('')}
         </select>
       </div>
     `;
 
     return `
-      <div class="question-row" id="qrow-${i}">
+      <div class="question-row" id="qrow-${arrName}-${i}">
         <div class="qrow-top">
           <div style="flex:1;">
             ${badge}
             <div class="q-label">Question ${i+1}</div>
           </div>
-          <select class="type-select" onchange="setQuestionType(${i}, this.value)">${typeOptions}</select>
-          <button class="remove-btn" onclick="removeQuestion(${i})">✕</button>
+          <select class="type-select" onchange="setQuestionType('${arrName}', ${i}, this.value)">${typeOptions}</select>
+          <button class="remove-btn" onclick="removeQuestion('${arrName}', ${i})">✕</button>
         </div>
         ${body}
       </div>
@@ -377,8 +382,30 @@ function renderQuestions() {
   }).join('');
 }
 
-function setQuestionType(i, type) {
-  const q = questions[i];
+function revalidateRow(arrName, i) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  const q = arr[i];
+  if (!q) return;
+  const errors = [];
+  const allTypes = [...TRIVIA_TYPES, ...SURVEY_TYPES];
+  const modeTypes = gameMode === 'trivia' ? TRIVIA_TYPES : SURVEY_TYPES;
+
+  if (!q.text || !q.text.trim()) errors.push('Missing question text');
+  if (!modeTypes.includes(q.type)) errors.push(`"${q.type}" doesn't work in ${gameMode === 'trivia' ? 'Trivia' : 'Poll/Survey'} mode`);
+
+  if (q.type === 'multiple_choice' || q.type === 'true_false') {
+    if (q.options.filter(o => o.trim()).length < 2) errors.push('Needs at least 2 options');
+  } else if (q.type === 'short_answer' && gameMode === 'trivia') {
+    if (!q.acceptedAnswers || q.acceptedAnswers.filter(a => a.trim()).length === 0) errors.push('Needs at least one accepted answer');
+  }
+
+  q._rowErrors = errors;
+  if (arrName === 'excelQuestions') updateExcelStatus();
+}
+
+function setQuestionType(arrName, i, type) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  const q = arr[i];
   q.type = type;
   if (type === 'multiple_choice' && (!q.options || q.options.length < 2)) {
     q.options = ['', '', '', ''];
@@ -392,50 +419,67 @@ function setQuestionType(i, type) {
   if ((type === 'short_answer') && (!q.acceptedAnswers || q.acceptedAnswers.length === 0)) {
     q.acceptedAnswers = [''];
   }
-  renderQuestions();
+  rerenderArr(arrName);
 }
 
-function setTrueFalse(i, val) {
-  questions[i].correct = val;
-  renderQuestions();
+function rerenderArr(arrName) {
+  if (arrName === 'questions') {
+    renderQuestionRows('questions', 'questions-container', 'q-count-label');
+  } else {
+    renderQuestionRows('excelQuestions', 'excel-preview-list', 'excel-q-count');
+    updateExcelStatus();
+  }
 }
 
-function setQuestionStyle(i, style) {
-  questions[i].displayStyle = style;
-  renderQuestions();
+function setTrueFalse(arrName, i, val) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i].correct = val;
+  rerenderArr(arrName);
 }
 
-function toggleQuestionFlag(i, flag) {
-  questions[i][flag] = !questions[i][flag];
-  renderQuestions();
+function setQuestionStyle(arrName, i, style) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i].displayStyle = style;
+  rerenderArr(arrName);
 }
 
-function addOption(i) {
-  questions[i].options.push('');
-  renderQuestions();
+function toggleQuestionFlag(arrName, i, flag) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i][flag] = !arr[i][flag];
+  rerenderArr(arrName);
 }
 
-function removeOption(i, j) {
-  const q = questions[i];
+function addOption(arrName, i) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i].options.push('');
+  rerenderArr(arrName);
+}
+
+function removeOption(arrName, i, j) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  const q = arr[i];
   q.options.splice(j, 1);
   if (q.correct === j) q.correct = 0;
   else if (q.correct > j) q.correct--;
-  renderQuestions();
+  rerenderArr(arrName);
 }
 
-function addAcceptedAnswer(i) {
-  questions[i].acceptedAnswers.push('');
-  renderQuestions();
+function addAcceptedAnswer(arrName, i) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i].acceptedAnswers.push('');
+  rerenderArr(arrName);
 }
 
-function removeAcceptedAnswer(i, j) {
-  questions[i].acceptedAnswers.splice(j, 1);
-  renderQuestions();
+function removeAcceptedAnswer(arrName, i, j) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i].acceptedAnswers.splice(j, 1);
+  rerenderArr(arrName);
 }
 
-function removeQuestion(i) {
-  questions.splice(i, 1);
-  renderQuestions();
+function removeQuestion(arrName, i) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr.splice(i, 1);
+  rerenderArr(arrName);
 }
 
 function clearAll() {
@@ -445,24 +489,26 @@ function clearAll() {
   }
 }
 
-function handleImageUpload(i, input) {
+function handleImageUpload(arrName, i, input) {
   const file = input.files[0];
   if (!file) return;
   if (file.size > 3 * 1024 * 1024) {
     showToast('Image too large — please use one under 3MB');
     return;
   }
+  const arr = arrName === 'questions' ? questions : excelQuestions;
   const reader = new FileReader();
   reader.onload = (e) => {
-    questions[i].image = e.target.result;
-    renderQuestions();
+    arr[i].image = e.target.result;
+    rerenderArr(arrName);
   };
   reader.readAsDataURL(file);
 }
 
-function removeImage(i) {
-  questions[i].image = null;
-  renderQuestions();
+function removeImage(arrName, i) {
+  const arr = arrName === 'questions' ? questions : excelQuestions;
+  arr[i].image = null;
+  rerenderArr(arrName);
 }
 
 function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -835,6 +881,122 @@ function showPodium(leaderboard) {
       }
     }, idx * 700);
   });
+}
+
+// ── SAVE / LOAD QUIZZES ────────────────────────────────────────
+
+let saveQuizSourceArr = 'questions'; // tracks which array to save when modal confirms
+
+function openSaveQuizModal(sourceArr) {
+  const arr = sourceArr === 'questions' ? questions : excelQuestions;
+  const hasValid = arr.some(q => q.text && q.text.trim() && (!q._rowErrors || q._rowErrors.length === 0));
+  if (!hasValid) { showToast('Add at least one valid question first'); return; }
+  saveQuizSourceArr = sourceArr;
+  document.getElementById('save-quiz-name').value = '';
+  document.getElementById('save-quiz-error').textContent = '';
+  document.getElementById('save-quiz-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('save-quiz-name').focus(), 50);
+}
+
+function closeSaveQuizModal() {
+  document.getElementById('save-quiz-modal').style.display = 'none';
+}
+
+async function confirmSaveQuiz() {
+  const name = document.getElementById('save-quiz-name').value.trim();
+  const errorEl = document.getElementById('save-quiz-error');
+  if (!name) { errorEl.textContent = 'Enter a name for this quiz'; return; }
+
+  const arr = saveQuizSourceArr === 'questions' ? questions : excelQuestions;
+  const validQuestions = arr
+    .filter(q => q.text && q.text.trim() && (!q._rowErrors || q._rowErrors.length === 0))
+    .map(q => {
+      const clean = { ...q };
+      delete clean._rowErrors;
+      return clean;
+    });
+
+  if (validQuestions.length === 0) { errorEl.textContent = 'No valid questions to save'; return; }
+
+  try {
+    const res = await fetch('/api/quizzes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, mode: gameMode, questions: validQuestions }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save');
+    closeSaveQuizModal();
+    showToast(`Saved "${name}"`);
+  } catch (err) {
+    errorEl.textContent = err.message || 'Failed to save quiz';
+  }
+}
+
+async function openLoadQuizModal() {
+  document.getElementById('load-quiz-modal').style.display = 'flex';
+  const listEl = document.getElementById('load-quiz-list');
+  listEl.innerHTML = '<p style="color:var(--muted); font-size:0.9rem;">Loading…</p>';
+
+  try {
+    const res = await fetch('/api/quizzes');
+    const quizzes = await res.json();
+    if (!Array.isArray(quizzes) || quizzes.length === 0) {
+      listEl.innerHTML = '<p style="color:var(--muted); font-size:0.9rem;">No saved quizzes yet. Build one and click "Save for later."</p>';
+      return;
+    }
+    listEl.innerHTML = quizzes.map(q => `
+      <div class="saved-quiz-row">
+        <div class="saved-quiz-info">
+          <div class="saved-quiz-name">${escHtml(q.name)}</div>
+          <div class="saved-quiz-meta">${q.mode === 'trivia' ? 'Trivia' : 'Poll/Survey'} · ${q.questionCount} question${q.questionCount===1?'':'s'} · ${formatSavedDate(q.updatedAt)}</div>
+        </div>
+        <div class="saved-quiz-actions">
+          <button class="btn btn-primary btn-sm" onclick="loadSavedQuiz('${q.id}')">Load</button>
+          <button class="btn btn-secondary btn-sm" onclick="deleteSavedQuiz('${q.id}', this)" style="color:var(--red);">✕</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    listEl.innerHTML = '<p style="color:var(--red); font-size:0.9rem;">Failed to load saved quizzes.</p>';
+  }
+}
+
+function closeLoadQuizModal() {
+  document.getElementById('load-quiz-modal').style.display = 'none';
+}
+
+function formatSavedDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+async function loadSavedQuiz(id) {
+  try {
+    const res = await fetch(`/api/quizzes/${id}`);
+    if (!res.ok) throw new Error('Quiz not found');
+    const quiz = await res.json();
+
+    setMode(quiz.mode);
+    questions = quiz.questions.map(q => ({ ...q, _rowErrors: [] }));
+    setEntryMode('manual');
+    renderQuestions();
+    closeLoadQuizModal();
+    showToast(`Loaded "${quiz.name}"`);
+    document.getElementById('builder-anchor').scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    showToast('Failed to load that quiz');
+  }
+}
+
+async function deleteSavedQuiz(id, btn) {
+  if (!confirm('Delete this saved quiz? This can\'t be undone.')) return;
+  try {
+    await fetch(`/api/quizzes/${id}`, { method: 'DELETE' });
+    openLoadQuizModal(); // refresh list
+  } catch (err) {
+    showToast('Failed to delete quiz');
+  }
 }
 
 // ── RESULTS EXPORT ───────────────────────────────────────────
