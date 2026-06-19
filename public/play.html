@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QuizDrop — Join</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a23;
+    --surface2: #242430;
+    --border: rgba(255,255,255,0.08);
+    --accent: #7c5cfc;
+    --accent2: #fc5c7d;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --text: #f0f0f5;
+    --muted: rgba(240,240,245,0.5);
+    --radius: 14px;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+
+  .screen { display: none; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding: 1.5rem; text-align: center; }
+  .screen.active { display: flex; }
+
+  .logo { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 1.5rem; }
+  .logo span { color: var(--accent); }
+
+  input[type=text], textarea { width: 100%; max-width: 320px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; color: var(--text); padding: 0.85rem 1.1rem; font-size: 1rem; text-align: center; letter-spacing: 0.05em; outline: none; font-family: inherit; }
+  input[type=text]:focus, textarea:focus { border-color: var(--accent); }
+  input#room-code-input { font-size: 1.5rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+  textarea { resize: none; text-align: left; letter-spacing: normal; min-height: 100px; }
+
+  .btn { width: 100%; max-width: 320px; padding: 0.9rem; border-radius: 12px; border: none; font-size: 1rem; font-weight: 700; cursor: pointer; transition: opacity 0.15s, transform 0.1s; margin-top: 0.75rem; }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: var(--surface2); color: var(--text); }
+  .btn:disabled { opacity: 0.4; pointer-events: none; }
+
+  .label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  .gap { margin-top: 1rem; }
+
+  .avatar { width: 72px; height: 72px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: 800; margin: 0 auto 1rem; }
+  .waiting-ring { width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--surface2); border-top-color: var(--accent); animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .q-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.75rem; }
+  .q-timer { font-size: 2.5rem; font-weight: 900; color: var(--accent); margin-bottom: 0.5rem; transition: color 0.3s; }
+  .q-timer.urgent { color: var(--red); }
+  .timer-bar-wrap { width: 100%; height: 5px; background: var(--surface2); border-radius: 3px; margin-bottom: 1.5rem; overflow: hidden; }
+  .timer-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 1s linear; }
+  .q-text { font-size: 1.15rem; font-weight: 700; line-height: 1.4; margin-bottom: 1.5rem; text-align: left; width: 100%; max-width: 380px; }
+  .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; width: 100%; max-width: 380px; }
+  .opt-btn { padding: 1rem 0.75rem; border-radius: 12px; border: none; font-size: 0.95rem; font-weight: 700; cursor: pointer; color: #fff; transition: transform 0.1s, opacity 0.2s; }
+  .opt-btn:active { transform: scale(0.95); }
+  .opt-btn[data-idx="0"] { background: #7c5cfc; }
+  .opt-btn[data-idx="1"] { background: #fc5c7d; }
+  .opt-btn[data-idx="2"] { background: #f39c12; }
+  .opt-btn[data-idx="3"] { background: #2ecc71; }
+  .opt-btn.dim { opacity: 0.3; pointer-events: none; }
+  .opt-btn.selected { outline: 3px solid #fff; }
+
+  .text-input-wrap { width: 100%; max-width: 320px; }
+  .char-count { font-size: 0.75rem; color: var(--muted); text-align: right; margin-top: 0.3rem; }
+
+  .result-icon { font-size: 4rem; margin-bottom: 1rem; }
+  .result-title { font-size: 1.5rem; font-weight: 800; margin-bottom: 0.5rem; }
+  .result-pts { font-size: 1.1rem; color: var(--accent); font-weight: 700; margin-bottom: 0.5rem; }
+  .result-streak { font-size: 0.9rem; color: var(--muted); }
+
+  .final-place { font-size: 4rem; margin-bottom: 0.5rem; }
+  .lb-list { list-style: none; width: 100%; max-width: 360px; text-align: left; margin-top: 1rem; }
+  .lb-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  .lb-rank { width: 1.5rem; font-weight: 800; color: var(--muted); }
+  .lb-name { flex: 1; }
+  .lb-score { font-weight: 700; color: var(--accent); }
+
+  .error-msg { color: var(--red); font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.2em; }
+</style>
+</head>
+<body>
+
+<div id="screen-join" class="screen active">
+  <div class="logo">Quiz<span>Drop</span></div>
+  <div class="label">Room code</div>
+  <input id="room-code-input" type="text" maxlength="5" placeholder="XXXXX" autocomplete="off" autocorrect="off" spellcheck="false" />
+  <div class="gap"></div>
+  <div class="label">Your name</div>
+  <input id="player-name" type="text" maxlength="20" placeholder="Enter your name" />
+  <div class="error-msg" id="join-error"></div>
+  <button class="btn btn-primary" onclick="joinRoom()">Join game →</button>
+</div>
+
+<div id="screen-lobby" class="screen">
+  <div class="logo">Quiz<span>Drop</span></div>
+  <div class="avatar" id="avatar-initial">?</div>
+  <p style="font-weight:700; font-size:1.1rem;" id="lobby-name"></p>
+  <p style="color:var(--muted); margin:0.5rem 0 1.5rem;">You're in! Waiting for the host…</p>
+  <div class="waiting-ring"></div>
+  <p style="font-size:0.85rem; color:var(--muted);">The game will start automatically</p>
+</div>
+
+<div id="screen-question" class="screen" style="justify-content: flex-start; padding-top: 1.25rem;">
+  <div class="q-meta" id="q-meta">Question 1 of 10</div>
+  <div class="q-timer" id="q-timer">20</div>
+  <div class="timer-bar-wrap"><div class="timer-bar" id="timer-bar" style="width:100%"></div></div>
+  <div class="q-text" id="q-text"></div>
+
+  <div class="options-grid" id="options-grid" style="display:none;"></div>
+  <button class="btn btn-primary" id="mc-submit-btn" onclick="submitMultiAnswer()" style="display:none; max-width:380px;">Submit →</button>
+
+  <div class="text-input-wrap" id="text-input-wrap" style="display:none;">
+    <input type="text" id="word-input" placeholder="Type a word or short phrase…" maxlength="30" />
+    <div class="char-count" id="word-count">0 / 30</div>
+    <button class="btn btn-primary" onclick="submitText()" id="word-submit-btn">Submit →</button>
+  </div>
+
+  <div class="text-input-wrap" id="open-input-wrap" style="display:none;">
+    <textarea id="open-input" placeholder="Type your response…" maxlength="280"></textarea>
+    <div class="char-count" id="open-count">0 / 280</div>
+    <button class="btn btn-primary" onclick="submitText()" id="open-submit-btn">Submit →</button>
+  </div>
+</div>
+
+<div id="screen-result" class="screen">
+  <div class="result-icon" id="result-icon">✓</div>
+  <div class="result-title" id="result-title">Correct!</div>
+  <div class="result-pts" id="result-pts">+500 pts</div>
+  <div class="result-streak" id="result-streak"></div>
+  <p style="color:var(--muted); margin-top:1.5rem; font-size:0.85rem;">Waiting for the next question…</p>
+</div>
+
+<div id="screen-final" class="screen">
+  <div class="logo">Quiz<span>Drop</span></div>
+  <div class="final-place" id="final-place">🏆</div>
+  <p style="font-weight:800; font-size:1.3rem; margin-bottom:0.25rem;" id="final-title">Game over!</p>
+  <p style="color:var(--muted); font-size:0.9rem;" id="final-score"></p>
+  <ul class="lb-list" id="final-lb"></ul>
+  <button class="btn btn-ghost" onclick="location.href='/'" style="margin-top:1.5rem;">Play again</button>
+</div>
+
+<script>
+const socket = io();
+let roomCode = '';
+let playerName = '';
+let timerInterval = null;
+let currentQType = 'multiple_choice';
+let gameMode = 'trivia';
+let textSubmitted = false;
+let allowMultiple = false;
+let selectedIndices = [];
+let mcSubmitted = false;
+
+const params = new URLSearchParams(location.search);
+if (params.get('room')) {
+  document.getElementById('room-code-input').value = params.get('room').toUpperCase();
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+
+function joinRoom() {
+  const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+  const name = document.getElementById('player-name').value.trim();
+  if (!code || code.length < 5) { setError('Enter the 5-character room code'); return; }
+  if (!name) { setError('Enter your name'); return; }
+  setError('');
+  socket.emit('player:join', { code, name }, ({ ok, error, name: confirmedName, mode }) => {
+    if (error) { setError(error); return; }
+    roomCode = code;
+    playerName = confirmedName || name;
+    gameMode = mode || 'trivia';
+    document.getElementById('lobby-name').textContent = playerName;
+    document.getElementById('avatar-initial').textContent = playerName[0].toUpperCase();
+    showScreen('lobby');
+  });
+}
+
+function setError(msg) {
+  document.getElementById('join-error').textContent = msg;
+}
+
+socket.on('game:question', ({ index, total, text, options, timeLimit, type, allowMultiple: am }) => {
+  showScreen('question');
+  textSubmitted = false;
+  mcSubmitted = false;
+  selectedIndices = [];
+  allowMultiple = !!am;
+  currentQType = type;
+  document.getElementById('q-meta').textContent = `Question ${index+1} of ${total}`;
+  document.getElementById('q-text').textContent = text;
+
+  document.getElementById('options-grid').style.display = 'none';
+  document.getElementById('mc-submit-btn').style.display = 'none';
+  document.getElementById('text-input-wrap').style.display = 'none';
+  document.getElementById('open-input-wrap').style.display = 'none';
+
+  if (type === 'multiple_choice') {
+    const grid = document.getElementById('options-grid');
+    grid.style.display = 'grid';
+    grid.innerHTML = options.map((o, i) => `
+      <button class="opt-btn" data-idx="${i}" onclick="${allowMultiple ? `toggleMultiSelect(${i})` : `submitAnswer(${i})`}">${escHtml(o)}</button>
+    `).join('');
+    if (allowMultiple) {
+      document.getElementById('mc-submit-btn').style.display = 'block';
+      document.getElementById('mc-submit-btn').disabled = false;
+    }
+  } else if (type === 'word_cloud') {
+    document.getElementById('text-input-wrap').style.display = 'block';
+    const input = document.getElementById('word-input');
+    input.value = '';
+    document.getElementById('word-count').textContent = '0 / 30';
+    document.getElementById('word-submit-btn').disabled = false;
+  } else if (type === 'open_ended') {
+    document.getElementById('open-input-wrap').style.display = 'block';
+    const input = document.getElementById('open-input');
+    input.value = '';
+    document.getElementById('open-count').textContent = '0 / 280';
+    document.getElementById('open-submit-btn').disabled = false;
+  }
+
+  startTimer(timeLimit);
+});
+
+document.getElementById('word-input').addEventListener('input', e => {
+  document.getElementById('word-count').textContent = `${e.target.value.length} / 30`;
+});
+document.getElementById('open-input').addEventListener('input', e => {
+  document.getElementById('open-count').textContent = `${e.target.value.length} / 280`;
+});
+document.getElementById('word-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitText();
+});
+
+function submitText() {
+  if (textSubmitted) return;
+  const input = currentQType === 'word_cloud' ? document.getElementById('word-input') : document.getElementById('open-input');
+  const val = input.value.trim();
+  if (!val) return;
+  textSubmitted = true;
+  socket.emit('player:submit_text', { text: val });
+  document.getElementById('word-submit-btn').disabled = true;
+  document.getElementById('open-submit-btn').disabled = true;
+  clearInterval(timerInterval);
+}
+
+socket.on('player:answer_result', ({ correct, points, streak }) => {
+  clearInterval(timerInterval);
+  if (correct === null) {
+    // Survey / text submission — no score
+    document.getElementById('result-icon').textContent = '✓';
+    document.getElementById('result-title').textContent = 'Response received!';
+    document.getElementById('result-pts').textContent = '';
+    document.getElementById('result-streak').textContent = '';
+  } else if (correct) {
+    document.getElementById('result-icon').textContent = '🎉';
+    document.getElementById('result-title').textContent = 'Correct!';
+    document.getElementById('result-pts').textContent = `+${points.toLocaleString()} pts`;
+    document.getElementById('result-pts').style.color = 'var(--green)';
+    document.getElementById('result-streak').textContent = streak > 1 ? `🔥 ${streak} in a row!` : '';
+  } else {
+    document.getElementById('result-icon').textContent = '😬';
+    document.getElementById('result-title').textContent = 'Not quite…';
+    document.getElementById('result-pts').textContent = 'No points';
+    document.getElementById('result-pts').style.color = 'var(--muted)';
+    document.getElementById('result-streak').textContent = '';
+  }
+  showScreen('result');
+});
+
+socket.on('game:question_ended', (data) => {
+  if (document.getElementById('screen-question').classList.contains('active')) {
+    clearInterval(timerInterval);
+    if (data.type === 'multiple_choice' && data.mode === 'trivia') {
+      document.getElementById('result-icon').textContent = '⏱';
+      document.getElementById('result-title').textContent = "Time's up!";
+      document.getElementById('result-pts').textContent = `Answer: ${data.correctText || ''}`;
+      document.getElementById('result-pts').style.color = 'var(--muted)';
+    } else {
+      document.getElementById('result-icon').textContent = '⏱';
+      document.getElementById('result-title').textContent = "Time's up!";
+      document.getElementById('result-pts').textContent = '';
+      document.getElementById('result-pts').style.color = 'var(--muted)';
+    }
+    document.getElementById('result-streak').textContent = '';
+    showScreen('result');
+  }
+});
+
+socket.on('game:ended', ({ leaderboard, mode }) => {
+  clearInterval(timerInterval);
+  if (mode === 'trivia' && leaderboard && leaderboard.length) {
+    const myEntry = leaderboard.find(p => p.name === playerName);
+    const rank = myEntry ? myEntry.rank : null;
+    const placeEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🎮';
+    document.getElementById('final-place').textContent = placeEmoji;
+    document.getElementById('final-title').textContent = rank === 1 ? 'You won!' : rank ? `You finished #${rank}` : 'Game over!';
+    document.getElementById('final-score').textContent = myEntry ? `${myEntry.score.toLocaleString()} points` : '';
+    const medals = ['🥇','🥈','🥉'];
+    document.getElementById('final-lb').innerHTML = leaderboard.map((p,i) => `
+      <li class="lb-row">
+        <span class="lb-rank">${medals[i] || p.rank}</span>
+        <span class="lb-name" style="${p.name===playerName?'font-weight:800;color:var(--accent)':''}">${escHtml(p.name)}</span>
+        <span class="lb-score">${p.score.toLocaleString()}</span>
+      </li>
+    `).join('');
+  } else {
+    document.getElementById('final-place').textContent = '🙌';
+    document.getElementById('final-title').textContent = 'Thanks for participating!';
+    document.getElementById('final-score').textContent = '';
+    document.getElementById('final-lb').innerHTML = '';
+  }
+  showScreen('final');
+});
+
+socket.on('game:host_left', () => {
+  clearInterval(timerInterval);
+  alert('The host ended the session.');
+  location.href = '/';
+});
+
+function submitAnswer(index) {
+  socket.emit('player:answer', { index });
+  document.querySelectorAll('.opt-btn').forEach(b => {
+    if (+b.dataset.idx !== index) b.classList.add('dim');
+    else b.classList.add('selected');
+  });
+  clearInterval(timerInterval);
+}
+
+function toggleMultiSelect(index) {
+  if (mcSubmitted) return;
+  const btn = document.querySelector(`.opt-btn[data-idx="${index}"]`);
+  const pos = selectedIndices.indexOf(index);
+  if (pos === -1) {
+    selectedIndices.push(index);
+    btn.classList.add('selected');
+  } else {
+    selectedIndices.splice(pos, 1);
+    btn.classList.remove('selected');
+  }
+}
+
+function submitMultiAnswer() {
+  if (mcSubmitted || selectedIndices.length === 0) return;
+  mcSubmitted = true;
+  socket.emit('player:answer', { index: selectedIndices[0], indices: selectedIndices });
+  document.querySelectorAll('.opt-btn').forEach(b => {
+    if (!selectedIndices.includes(+b.dataset.idx)) b.classList.add('dim');
+  });
+  document.getElementById('mc-submit-btn').disabled = true;
+  clearInterval(timerInterval);
+}
+
+function startTimer(seconds) {
+  clearInterval(timerInterval);
+  let remaining = seconds;
+  const bar = document.getElementById('timer-bar');
+  const disp = document.getElementById('q-timer');
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+  disp.textContent = seconds;
+  disp.classList.remove('urgent');
+  setTimeout(() => {
+    bar.style.transition = `width ${seconds}s linear`;
+    bar.style.width = '0%';
+  }, 50);
+  timerInterval = setInterval(() => {
+    remaining--;
+    disp.textContent = remaining;
+    if (remaining <= 5) disp.classList.add('urgent');
+    if (remaining <= 0) clearInterval(timerInterval);
+  }, 1000);
+}
+
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+document.getElementById('player-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinRoom();
+});
+</script>
+</body>
+</html>
