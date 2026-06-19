@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: quizdrop
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: APP_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: quizdrop-redis
+          type: redis
+          property: connectionString
+
+  - type: redis
+    name: quizdrop-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
