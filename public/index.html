@@ -6,26 +6,85 @@
 <title>Trivia Host — QuizDrop</title>
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #0f0f13;
-    --surface: #1a1a23;
-    --surface2: #242430;
-    --border: rgba(255,255,255,0.08);
-    --accent: #7c5cfc;
-    --accent2: #fc5c7d;
-    --green: #2ecc71;
-    --red: #e74c3c;
-    --text: #f0f0f5;
-    --muted: rgba(240,240,245,0.5);
+    --bg: #F4F8FF;
+    --surface: #FFFFFF;
+    --surface2: #E9F0FC;
+    --border: rgba(12,42,77,0.12);
+    --accent: #2563EB;
+    --accent2: #E0563A;
+    --gold: #F2A93C;
+    --green: #1D9E75;
+    --red: #C0392B;
+    --text: #0C2A4D;
+    --muted: rgba(12,42,77,0.55);
     --radius: 14px;
   }
   body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; min-height: 100vh; }
   a { color: var(--accent); }
 
-  .screen { display: none; padding: 2rem; max-width: 960px; margin: 0 auto; }
+  .screen { display: none; padding: 0 0 2rem; max-width: 960px; margin: 0 auto; }
   .screen.active { display: block; }
+  .screen-padded { padding: 2rem; }
+
+  /* ── HERO ── */
+  .hero { padding: 3.5rem 2rem 3rem; text-align: center; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ''; position: absolute; top: -120px; left: 50%; transform: translateX(-50%);
+    width: 600px; height: 300px; background: radial-gradient(ellipse at center, rgba(37,99,235,0.12), transparent 70%);
+    pointer-events: none;
+  }
+  .hero-eyebrow { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); background: rgba(241,196,15,0.12); padding: 0.35rem 0.9rem; border-radius: 20px; margin-bottom: 1.5rem; }
+  .hero-title { font-size: 3.2rem; font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 1.25rem; position: relative; }
+  .hero-title .accent-line { color: var(--accent); display: block; }
+  .hero-sub { font-size: 1.1rem; color: var(--muted); max-width: 540px; margin: 0 auto 2rem; line-height: 1.55; }
+  .hero-cta-row { display: flex; gap: 0.9rem; justify-content: center; flex-wrap: wrap; }
+  .hero-btn { padding: 0.95rem 1.9rem; border-radius: 12px; font-size: 1rem; font-weight: 700; border: none; cursor: pointer; }
+  .hero-btn-primary { background: var(--accent); color: #fff; }
+  .hero-btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+
+  /* ── LIVE PODIUM TICKER (signature element) ── */
+  .ticker-stage { max-width: 480px; margin: 2.5rem auto 0; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 1.5rem 1.5rem 1.75rem; position: relative; }
+  .ticker-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .ticker-label .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); display: inline-block; margin-right: 0.4rem; animation: pulse-dot 1.4s ease-in-out infinite; }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .ticker-q { font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; min-height: 1.4em; }
+  .ticker-podium { display: flex; align-items: flex-end; justify-content: center; gap: 1rem; height: 130px; }
+  .ticker-col { display: flex; flex-direction: column; align-items: center; width: 84px; }
+  .ticker-name { font-size: 0.78rem; font-weight: 700; margin-bottom: 0.4rem; opacity: 0; transition: opacity 0.4s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+  .ticker-name.show { opacity: 1; }
+  .ticker-bar { width: 100%; border-radius: 8px 8px 0 0; transition: height 0.6s cubic-bezier(.2,.8,.2,1); display: flex; align-items: flex-start; justify-content: center; padding-top: 0.4rem; font-weight: 800; font-size: 0.9rem; color: #1a1a23; }
+  .ticker-bar-1 { background: var(--gold); }
+  .ticker-bar-2 { background: #bdc3c7; }
+  .ticker-bar-3 { background: #e67e22; }
+
+  /* ── GAME FLOW TIMELINE ── */
+  .flow-section { padding: 3rem 2rem; }
+  .flow-heading { text-align: center; margin-bottom: 0.4rem; font-size: 1.7rem; font-weight: 800; }
+  .flow-sub { text-align: center; color: var(--muted); margin-bottom: 2.5rem; font-size: 0.95rem; }
+  .flow-track { position: relative; display: flex; justify-content: space-between; gap: 1rem; max-width: 760px; margin: 0 auto; }
+  .flow-track::before { content: ''; position: absolute; top: 22px; left: 5%; right: 5%; height: 3px; background: var(--surface2); border-radius: 2px; z-index: 0; }
+  .flow-track::after { content: ''; position: absolute; top: 22px; left: 5%; width: 90%; height: 3px; background: linear-gradient(90deg, var(--accent), var(--gold)); border-radius: 2px; z-index: 0; opacity: 0.5; }
+  .flow-step { position: relative; z-index: 1; flex: 1; text-align: center; }
+  .flow-dot { width: 46px; height: 46px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; margin: 0 auto 1rem; border: 4px solid var(--bg); }
+  .flow-step-title { font-weight: 700; font-size: 0.98rem; margin-bottom: 0.4rem; }
+  .flow-step-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.5; max-width: 170px; margin: 0 auto; }
+
+  /* ── FEATURE GRID ── */
+  .features-section { padding: 1rem 2rem 1.5rem; }
+  .features-heading { text-align: center; margin-bottom: 0.4rem; font-size: 1.7rem; font-weight: 800; }
+  .features-sub { text-align: center; color: var(--muted); margin-bottom: 2.5rem; font-size: 0.95rem; }
+  .features-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; max-width: 880px; margin: 0 auto; }
+  .feature-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.4rem; }
+  .feature-icon { font-size: 1.5rem; margin-bottom: 0.7rem; }
+  .feature-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.4rem; }
+  .feature-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.5; }
+
+  .builder-divider { text-align: center; padding: 1rem 2rem 0; }
+  .builder-divider-label { display: inline-block; font-size: 0.85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
 
   .logo { font-size: 2rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 0.25rem; }
   .logo span { color: var(--accent); }
@@ -38,6 +97,19 @@
   .mode-btn { padding: 0.6rem 1.4rem; border-radius: 9px; border: none; background: transparent; color: var(--muted); font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: all 0.15s; }
   .mode-btn.active { background: var(--accent); color: #fff; }
   .mode-desc { font-size: 0.82rem; color: var(--muted); margin-bottom: 1.5rem; }
+
+  .entry-toggle { display: flex; gap: 0.5rem; background: var(--surface2); border-radius: 12px; padding: 0.3rem; margin-bottom: 1.5rem; width: fit-content; }
+  .entry-btn { padding: 0.55rem 1.2rem; border-radius: 9px; border: none; background: transparent; color: var(--muted); font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
+  .entry-btn.active { background: var(--accent); color: #fff; }
+
+  .excel-drop-zone { border: 2px dashed var(--border); border-radius: 12px; padding: 2.5rem 1.5rem; text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .excel-drop-zone:hover, .excel-drop-zone.dragover { border-color: var(--accent); background: var(--surface2); }
+  .excel-drop-icon { font-size: 1.8rem; color: var(--accent); margin-bottom: 0.5rem; }
+  .template-link { display: inline-block; margin-top: 1rem; font-size: 0.85rem; color: var(--accent); text-decoration: none; font-weight: 600; }
+  .template-link:hover { text-decoration: underline; }
+  .excel-preview-row { background: var(--surface2); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; font-size: 0.88rem; }
+  .excel-preview-row .ep-type { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--accent); margin-bottom: 0.2rem; }
+  .excel-preview-row .ep-error { color: var(--red); font-size: 0.8rem; margin-top: 0.3rem; }
 
   .question-row { background: var(--surface2); border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
   .qrow-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
@@ -61,9 +133,23 @@
   .toggle-switch.on { background: var(--accent); border-color: var(--accent); }
   .toggle-switch.on::after { transform: translateX(16px); background: #fff; }
   .type-badge { display: inline-block; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
-  .badge-mc { background: rgba(124,92,252,0.2); color: var(--accent); }
+  .badge-mc { background: rgba(37,99,235,0.14); color: var(--accent); }
   .badge-wc { background: rgba(252,92,125,0.2); color: var(--accent2); }
   .badge-oe { background: rgba(243,156,18,0.2); color: #f39c12; }
+  .badge-tf { background: rgba(52,152,219,0.2); color: #3498db; }
+  .badge-fb { background: rgba(46,204,113,0.2); color: var(--green); }
+  .badge-sa { background: rgba(155,89,182,0.2); color: #9b59b6; }
+
+  .image-upload-row { margin: 0.5rem 0; }
+  .image-preview-wrap { display: flex; align-items: center; gap: 0.75rem; }
+  .image-preview { max-width: 140px; max-height: 90px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); }
+  .options-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+  .remove-opt-btn { background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; padding: 0.2rem; flex-shrink: 0; }
+  .accepted-answers-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+
+  .q-image { max-width: 100%; max-height: 280px; border-radius: 10px; margin-bottom: 1.25rem; display: block; }
+
+  .present-btn { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
 
   .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; border-radius: 10px; border: none; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s, transform 0.1s; }
   .btn:hover { opacity: 0.9; }
@@ -79,7 +165,7 @@
   .qr-wrap { background: #fff; border-radius: 12px; padding: 1rem; display: inline-block; margin: 1rem 0; }
   .qr-wrap img { display: block; width: 200px; height: 200px; }
   .join-url { font-size: 0.8rem; color: var(--muted); word-break: break-all; }
-  .player-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; min-height: 60px; }
+  .player-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; min-height: 60px; max-height: 320px; overflow-y: auto; }
   .player-chip { background: var(--surface2); border-radius: 20px; padding: 0.35rem 0.9rem; font-size: 0.85rem; animation: pop 0.2s ease; }
   @keyframes pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   .player-count { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
@@ -89,13 +175,13 @@
   .timer-bar-wrap { height: 6px; background: var(--surface2); border-radius: 3px; margin-bottom: 1.5rem; overflow: hidden; }
   .timer-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 1s linear; }
   .q-text { font-size: 1.6rem; font-weight: 700; line-height: 1.35; margin-bottom: 1.5rem; }
-  .options-display { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .options-display { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; max-height: 420px; overflow-y: auto; }
   .opt-card { border-radius: 10px; padding: 1rem 1.25rem; font-size: 1rem; font-weight: 600; border: 2px solid var(--border); }
-  .opt-card.correct { border-color: var(--green); background: rgba(46,204,113,0.12); color: var(--green); }
-  .opt-card:nth-child(1) { border-color: #7c5cfc44; background: #7c5cfc18; }
-  .opt-card:nth-child(2) { border-color: #fc5c7d44; background: #fc5c7d18; }
-  .opt-card:nth-child(3) { border-color: #f39c1244; background: #f39c1218; }
-  .opt-card:nth-child(4) { border-color: #2ecc7144; background: #2ecc7118; }
+  .opt-card.correct { border-color: var(--green); background: rgba(29,158,117,0.12); color: var(--green); }
+  .opt-card:nth-child(1) { border-color: #2563EB44; background: #2563EB14; }
+  .opt-card:nth-child(2) { border-color: #E0563A44; background: #E0563A14; }
+  .opt-card:nth-child(3) { border-color: #F2A93C44; background: #F2A93C18; }
+  .opt-card:nth-child(4) { border-color: #1D9E7544; background: #1D9E7514; }
 
   .answer-bar { display: flex; justify-content: space-between; align-items: center; background: var(--surface); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
   .answer-count { font-weight: 700; font-size: 1.1rem; }
@@ -103,12 +189,12 @@
   .chart-wrap { position: relative; height: 280px; margin-bottom: 1.5rem; }
   .display-style-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 
-  .wordcloud-wrap { min-height: 220px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.6rem; padding: 1.5rem; background: var(--surface2); border-radius: 10px; margin-bottom: 1.5rem; }
+  .wordcloud-wrap { min-height: 220px; max-height: 420px; overflow-y: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; align-content: flex-start; gap: 0.6rem; padding: 1.5rem; background: var(--surface2); border-radius: 10px; margin-bottom: 1.5rem; }
   .wc-word { font-weight: 700; color: var(--accent); }
   .feed-wrap { max-height: 320px; overflow-y: auto; background: var(--surface2); border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; }
   .feed-item { background: var(--bg); border-radius: 8px; padding: 0.65rem 0.9rem; margin-bottom: 0.5rem; font-size: 0.92rem; animation: pop 0.2s ease; }
 
-  .lb-list { list-style: none; }
+  .lb-list { list-style: none; max-height: 420px; overflow-y: auto; }
   .lb-row { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
   .lb-rank { font-size: 1.2rem; font-weight: 800; width: 2rem; color: var(--muted); }
   .lb-rank.gold { color: #f1c40f; }
@@ -119,30 +205,151 @@
 
   .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
   .badge-live { background: rgba(46,204,113,0.2); color: var(--green); }
-  .badge-waiting { background: rgba(124,92,252,0.2); color: var(--accent); }
+  .badge-waiting { background: rgba(37,99,235,0.14); color: var(--accent); }
   .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1.25rem; font-size: 0.9rem; z-index: 999; animation: slideup 0.3s ease; }
   @keyframes slideup { from { transform: translateY(20px); opacity: 0; } }
+
+  .podium-stage { display: flex; align-items: flex-end; justify-content: center; gap: 1.5rem; padding: 2rem 1rem 0; min-height: 320px; }
+  .podium-col { display: flex; flex-direction: column; align-items: center; width: 140px; }
+  .podium-player { display: flex; flex-direction: column; align-items: center; margin-bottom: 0.75rem; transition: opacity 0.4s ease, transform 0.4s ease; transform: translateY(10px); }
+  .podium-medal { font-size: 2rem; margin-bottom: 0.25rem; }
+  .podium-name { font-weight: 800; font-size: 1rem; text-align: center; word-break: break-word; max-width: 130px; }
+  .podium-score { font-weight: 700; color: var(--accent); font-size: 0.9rem; margin-top: 0.2rem; }
+  .podium-block { width: 100%; background: var(--surface2); border-radius: 10px 10px 0 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 0.5rem; transition: height 0.5s cubic-bezier(.2,.8,.2,1); overflow: hidden; }
+  .podium-rank-num { font-size: 1.4rem; font-weight: 900; color: var(--muted); }
+  .podium-block-1 { height: 20px; background: linear-gradient(180deg, #2563EB22, var(--surface2)); }
+  .podium-block-2 { height: 20px; background: linear-gradient(180deg, #95A5A622, var(--surface2)); }
+  .podium-block-3 { height: 20px; background: linear-gradient(180deg, #E0563A22, var(--surface2)); }
+  .podium-block-1.grown { height: 180px; }
+  .podium-block-2.grown { height: 130px; }
+  .podium-block-3.grown { height: 90px; }
 
   @media (max-width: 640px) {
     .lobby-grid { grid-template-columns: 1fr; }
     .options-display { grid-template-columns: 1fr; }
     .options-grid { grid-template-columns: 1fr; }
     .room-code { font-size: 3rem; }
+    .hero-title { font-size: 2.1rem; }
+    .hero { padding: 2.5rem 1.25rem 2rem; }
+    .flow-track { flex-direction: column; gap: 2rem; }
+    .flow-track::before, .flow-track::after { display: none; }
+    .features-grid { grid-template-columns: 1fr; }
+    .flow-section, .features-section { padding: 2rem 1.25rem; }
   }
 </style>
 </head>
 <body>
 
 <div id="screen-setup" class="screen active">
-  <div class="logo">Quiz<span>Drop</span></div>
-  <p class="tagline">Live trivia and polls for work events and game nights</p>
 
+  <section class="hero">
+    <span class="hero-eyebrow">🏆 No app, no signup, just a code</span>
+    <h1 class="hero-title">Turn any room into<br><span class="accent-line">a game show floor.</span></h1>
+    <p class="hero-sub">Build the questions, drop a QR code on the screen, and watch the room light up. Live scores, live podium, zero downloads.</p>
+    <div class="hero-cta-row">
+      <button class="hero-btn hero-btn-primary" onclick="document.getElementById('builder-anchor').scrollIntoView({behavior:'smooth'})">Start building →</button>
+      <button class="hero-btn hero-btn-ghost" onclick="document.getElementById('flow-anchor').scrollIntoView({behavior:'smooth'})">See how it works</button>
+    </div>
+
+    <div class="ticker-stage">
+      <div class="ticker-label">
+        <span style="font-size:0.78rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.06em;"><span class="live-dot"></span>Live podium preview</span>
+        <span style="font-size:0.78rem; color:var(--muted);">Round 4 of 10</span>
+      </div>
+      <div class="ticker-q" id="ticker-question">Which planet has the most moons?</div>
+      <div class="ticker-podium" id="ticker-podium">
+        <div class="ticker-col">
+          <div class="ticker-name" id="ticker-name-2">Maya</div>
+          <div class="ticker-bar ticker-bar-2" id="ticker-bar-2" style="height:0;">2</div>
+        </div>
+        <div class="ticker-col">
+          <div class="ticker-name" id="ticker-name-1">Devon</div>
+          <div class="ticker-bar ticker-bar-1" id="ticker-bar-1" style="height:0;">1</div>
+        </div>
+        <div class="ticker-col">
+          <div class="ticker-name" id="ticker-name-3">Priya</div>
+          <div class="ticker-bar ticker-bar-3" id="ticker-bar-3" style="height:0;">3</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="flow-section" id="flow-anchor">
+    <h2 class="flow-heading">From blank page to live game</h2>
+    <p class="flow-sub">No accounts, no installs — just three moves.</p>
+    <div class="flow-track">
+      <div class="flow-step">
+        <div class="flow-dot">✎</div>
+        <div class="flow-step-title">Write it</div>
+        <div class="flow-step-desc">Add questions by hand — multiple choice, true/false, fill in the blank, or a quick poll.</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot">▢</div>
+        <div class="flow-step-title">Drop the code</div>
+        <div class="flow-step-desc">A room code and QR appear instantly. Throw it on a screen — phones do the rest.</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot">▲</div>
+        <div class="flow-step-title">Watch it climb</div>
+        <div class="flow-step-desc">Scores update live after every round, ending in an animated podium finish.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features-section">
+    <h2 class="features-heading">Built for the room, not the dashboard</h2>
+    <p class="features-sub">Every feature exists because someone needed it mid-game.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⏱</div>
+        <div class="feature-title">Speed-based scoring</div>
+        <div class="feature-desc">Faster correct answers earn more points. Streaks stack extra bonus on top.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🖼</div>
+        <div class="feature-title">Photo questions</div>
+        <div class="feature-desc">Drop in an image for any question type — guess-the-photo rounds included.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <div class="feature-title">Poll mode</div>
+        <div class="feature-desc">Switch to unscored polling — word clouds, open text, multi-select charts.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🥇</div>
+        <div class="feature-title">Podium finish</div>
+        <div class="feature-desc">Top three get a Kahoot-style animated reveal at the end of every game.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⛶</div>
+        <div class="feature-title">Present mode</div>
+        <div class="feature-desc">One click goes fullscreen — built for a TV, a projector, or a shared screen.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">∞</div>
+        <div class="feature-title">No player cap</div>
+        <div class="feature-desc">Five players or five hundred — the room scales without you doing anything.</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="builder-divider" id="builder-anchor">
+    <span class="builder-divider-label">Build your game</span>
+  </div>
+
+  <div class="screen-padded">
   <div class="mode-toggle">
     <button class="mode-btn active" id="mode-trivia-btn" onclick="setMode('trivia')">Trivia</button>
     <button class="mode-btn" id="mode-survey-btn" onclick="setMode('survey')">Poll / Survey</button>
   </div>
   <p class="mode-desc" id="mode-desc">Scored multiple-choice questions with a live leaderboard — best for trivia games.</p>
 
+  <div class="entry-toggle">
+    <button class="entry-btn active" id="entry-manual-btn" onclick="setEntryMode('manual')">Manual Entry</button>
+    <button class="entry-btn" id="entry-excel-btn" onclick="setEntryMode('excel')">Upload Excel</button>
+  </div>
+
+  <div id="entry-manual-panel">
   <div class="card">
     <h2>Questions <span id="q-count-label" style="color:var(--text)">0</span></h2>
     <div id="questions-container"></div>
@@ -155,6 +362,32 @@
   <button class="btn btn-primary" onclick="createRoom()" id="start-btn" style="font-size:1.05rem; padding: 0.9rem 2rem;">
     Create game room →
   </button>
+  </div>
+
+  <div id="entry-excel-panel" style="display:none;">
+    <div class="card">
+      <h2>Upload a spreadsheet</h2>
+      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:1rem;">One row per question. Supports .xlsx and .csv. The template includes a full instructions tab.</p>
+      <div class="excel-drop-zone" id="excel-drop-zone" onclick="document.getElementById('excel-file-input').click()">
+        <input type="file" id="excel-file-input" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleExcelUpload(this)" />
+        <div class="excel-drop-icon">⬆</div>
+        <p style="font-weight:700; margin-bottom:0.25rem;">Click to choose a file</p>
+        <p style="font-size:0.82rem; color:var(--muted);">or drag and drop it here</p>
+      </div>
+      <a href="/quizdrop-template-trivia.xlsx" download class="template-link" id="template-download-link">⬇ Download the Trivia template</a>
+      <div id="excel-status" style="margin-top:1rem; font-size:0.88rem;"></div>
+    </div>
+
+    <div class="card" id="excel-preview-card" style="display:none;">
+      <h2>Preview <span id="excel-q-count" style="color:var(--text)"></span></h2>
+      <div id="excel-preview-list"></div>
+    </div>
+
+    <button class="btn btn-primary" onclick="createRoom()" id="excel-start-btn" style="font-size:1.05rem; padding: 0.9rem 2rem; display:none;">
+      Create game room →
+    </button>
+  </div>
+  </div>
 </div>
 
 <div id="screen-lobby" class="screen">
@@ -163,7 +396,10 @@
       <div class="logo" style="font-size:1.4rem;">Quiz<span>Drop</span></div>
       <span class="status-badge badge-waiting" style="margin-top:0.25rem;">Waiting for players</span>
     </div>
-    <button class="btn btn-primary" onclick="startGame()" id="launch-btn">Launch game →</button>
+    <div style="display:flex; gap:0.75rem;">
+      <button class="btn present-btn" onclick="togglePresent()">⛶ Present</button>
+      <button class="btn btn-primary" onclick="startGame()" id="launch-btn">Launch game →</button>
+    </div>
   </div>
 
   <div class="lobby-grid">
@@ -192,6 +428,7 @@
     <div class="logo" style="font-size:1.2rem;">Quiz<span>Drop</span></div>
     <div style="display:flex; gap:0.75rem; align-items:center;">
       <span class="status-badge badge-live">Live</span>
+      <button class="btn present-btn btn-sm" onclick="togglePresent()">⛶ Present</button>
       <button class="btn btn-secondary btn-sm" onclick="hostNext()" id="next-btn">Skip →</button>
       <button class="btn btn-danger btn-sm" onclick="endGame()">End game</button>
     </div>
@@ -203,6 +440,7 @@
   </div>
   <div class="timer-bar-wrap"><div class="timer-bar" id="timer-bar" style="width:100%"></div></div>
   <div class="q-text" id="q-text"></div>
+  <img id="q-image" class="q-image" style="display:none;" />
 
   <div class="options-display" id="options-display" style="display:none;"></div>
   <div class="chart-wrap" id="live-chart-wrap" style="display:none;">
@@ -210,6 +448,7 @@
   </div>
   <div class="wordcloud-wrap" id="wordcloud-wrap" style="display:none;"></div>
   <div class="feed-wrap" id="feed-wrap" style="display:none;"></div>
+  <div id="text-answer-host-wrap" style="display:none; margin-bottom:1.5rem;"></div>
 
   <div class="answer-bar">
     <span style="color:var(--muted); font-size:0.9rem;">Responses received</span>
@@ -247,6 +486,8 @@
     <div class="feed-wrap" id="results-feed" style="margin-bottom:0;"></div>
   </div>
 
+  <div class="card" id="results-text-card" style="display:none;"></div>
+
   <div class="card" id="results-lb-card" style="display:none;">
     <h2>Top players</h2>
     <ul class="lb-list" id="results-lb"></ul>
@@ -258,6 +499,7 @@
     <div class="logo" style="font-size:2rem;">Quiz<span>Drop</span></div>
     <p style="font-size:1.1rem; color:var(--muted); margin-top:0.5rem;" id="final-subtitle">Game over — final standings</p>
   </div>
+  <div id="podium-wrap" style="display:none;"></div>
   <div class="card" id="final-lb-card">
     <ul class="lb-list" id="final-lb"></ul>
   </div>
