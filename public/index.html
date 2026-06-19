@@ -41,7 +41,8 @@
   .hero-title { font-size: 3.2rem; font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 1.25rem; position: relative; }
   .hero-title .accent-line { color: var(--accent); display: block; }
   .hero-sub { font-size: 1.1rem; color: var(--muted); max-width: 540px; margin: 0 auto 2rem; line-height: 1.55; }
-  .hero-cta-row { display: flex; gap: 0.9rem; justify-content: center; flex-wrap: wrap; }
+  .hero-cta-row { display: flex; gap: 0.9rem; justify-content: center; align-items: center; flex-wrap: wrap; }
+  .hero-cta-or { color: var(--muted); font-size: 0.95rem; font-weight: 600; }
   .hero-btn { padding: 0.95rem 1.9rem; border-radius: 12px; font-size: 1rem; font-weight: 700; border: none; cursor: pointer; }
   .hero-btn-primary { background: var(--accent); color: #fff; }
   .hero-btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
@@ -137,7 +138,6 @@
   .badge-wc { background: rgba(252,92,125,0.2); color: var(--accent2); }
   .badge-oe { background: rgba(243,156,18,0.2); color: #f39c12; }
   .badge-tf { background: rgba(52,152,219,0.2); color: #3498db; }
-  .badge-fb { background: rgba(46,204,113,0.2); color: var(--green); }
   .badge-sa { background: rgba(155,89,182,0.2); color: #9b59b6; }
 
   .image-upload-row { margin: 0.5rem 0; }
@@ -247,8 +247,9 @@
     <h1 class="hero-title">Turn any room into<br><span class="accent-line">a game show floor.</span></h1>
     <p class="hero-sub">Build the questions, drop a QR code on the screen, and watch the room light up. Live scores, live podium, zero downloads.</p>
     <div class="hero-cta-row">
-      <button class="hero-btn hero-btn-primary" onclick="document.getElementById('builder-anchor').scrollIntoView({behavior:'smooth'})">Start building →</button>
-      <button class="hero-btn hero-btn-ghost" onclick="document.getElementById('flow-anchor').scrollIntoView({behavior:'smooth'})">See how it works</button>
+      <button class="hero-btn hero-btn-primary" onclick="document.getElementById('builder-anchor').scrollIntoView({behavior:'smooth'})">Start Quiz →</button>
+      <span class="hero-cta-or">or</span>
+      <a class="hero-btn hero-btn-ghost" href="/play" style="display:inline-flex; align-items:center; justify-content:center; text-decoration:none;">Join Game</a>
     </div>
 
     <div class="ticker-stage">
@@ -281,7 +282,7 @@
       <div class="flow-step">
         <div class="flow-dot">✎</div>
         <div class="flow-step-title">Write it</div>
-        <div class="flow-step-desc">Add questions by hand — multiple choice, true/false, fill in the blank, or a quick poll.</div>
+        <div class="flow-step-desc">Add questions by hand — multiple choice, true/false, short answer, or a quick poll.</div>
       </div>
       <div class="flow-step">
         <div class="flow-dot">▢</div>
@@ -503,7 +504,8 @@
   <div class="card" id="final-lb-card">
     <ul class="lb-list" id="final-lb"></ul>
   </div>
-  <div style="text-align:center; margin-top:1.5rem;">
+  <div style="text-align:center; margin-top:1.5rem; display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
+    <button class="btn btn-secondary" onclick="downloadResults()" id="download-results-btn">⬇ Download results (Excel)</button>
     <button class="btn btn-primary" onclick="location.reload()">Play again</button>
   </div>
 </div>
