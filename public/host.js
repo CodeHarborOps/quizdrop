@@ -26,7 +26,7 @@ function setMode(mode) {
   document.getElementById('mode-trivia-btn').classList.toggle('active', mode === 'trivia');
   document.getElementById('mode-survey-btn').classList.toggle('active', mode === 'survey');
   document.getElementById('mode-desc').textContent = mode === 'trivia'
-    ? 'Scored questions with a live leaderboard — multiple choice, true/false, fill in the blank, short answer.'
+    ? 'Scored questions with a live leaderboard — multiple choice, true/false, short answer.'
     : 'Unscored questions for gathering opinions — multiple choice, word cloud, or open text.';
 
   const templateLink = document.getElementById('template-download-link');
@@ -64,7 +64,7 @@ function setEntryMode(mode) {
 
 // ── EXCEL UPLOAD ────────────────────────────────────────────────
 
-const TRIVIA_TYPES = ['multiple_choice', 'true_false', 'fill_blank', 'short_answer'];
+const TRIVIA_TYPES = ['multiple_choice', 'true_false', 'short_answer'];
 const SURVEY_TYPES = ['multiple_choice', 'word_cloud', 'open_ended'];
 
 function handleExcelUpload(input) {
@@ -176,7 +176,7 @@ function processExcelRows(rows) {
       } else if (gameMode === 'trivia') {
         errors.push(`Row ${rowNum}: "correct" must be the option number (1-${q.options.length})`);
       }
-    } else if (type === 'fill_blank' || type === 'short_answer') {
+    } else if (type === 'short_answer') {
       const correctRaw = String(row.correct || '').trim();
       q.acceptedAnswers = correctRaw ? correctRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
       if (gameMode === 'trivia' && q.acceptedAnswers.length === 0) {
@@ -249,7 +249,6 @@ function renderQuestions() {
       ? `
         <option value="multiple_choice" ${q.type==='multiple_choice'?'selected':''}>Multiple choice</option>
         <option value="true_false" ${q.type==='true_false'?'selected':''}>True / False</option>
-        <option value="fill_blank" ${q.type==='fill_blank'?'selected':''}>Fill in the blank</option>
         <option value="short_answer" ${q.type==='short_answer'?'selected':''}>Short answer</option>
       `
       : `
@@ -261,7 +260,6 @@ function renderQuestions() {
     const badgeMap = {
       multiple_choice: ['badge-mc', 'Multiple choice'],
       true_false: ['badge-tf', 'True / False'],
-      fill_blank: ['badge-fb', 'Fill in the blank'],
       short_answer: ['badge-sa', 'Short answer'],
       word_cloud: ['badge-wc', 'Word cloud'],
       open_ended: ['badge-oe', 'Open ended'],
@@ -333,7 +331,7 @@ function renderQuestions() {
           </div>
         </div>
       `;
-    } else if (q.type === 'fill_blank' || q.type === 'short_answer') {
+    } else if (q.type === 'short_answer') {
       body += `
         <div class="q-label" style="margin-top:0.5rem;">Accepted answers (any of these count as correct)</div>
         <div class="accepted-answers-list">
@@ -391,7 +389,7 @@ function setQuestionType(i, type) {
     q.options = ['True', 'False'];
     if (q.correct !== 0 && q.correct !== 1) q.correct = 0;
   }
-  if ((type === 'fill_blank' || type === 'short_answer') && (!q.acceptedAnswers || q.acceptedAnswers.length === 0)) {
+  if ((type === 'short_answer') && (!q.acceptedAnswers || q.acceptedAnswers.length === 0)) {
     q.acceptedAnswers = [''];
   }
   renderQuestions();
@@ -479,7 +477,7 @@ function createRoom() {
       .map(q => {
         const clean = { ...q };
         delete clean._rowErrors;
-        if (clean.type === 'fill_blank' || clean.type === 'short_answer') {
+        if (clean.type === 'short_answer') {
           clean.acceptedAnswers = clean.acceptedAnswers.filter(a => a.trim());
         }
         return clean;
@@ -489,7 +487,7 @@ function createRoom() {
       if (!q.text.trim()) return false;
       if (q.type === 'multiple_choice') return q.options.filter(o => o.trim()).length >= 2;
       if (q.type === 'true_false') return true;
-      if (q.type === 'fill_blank' || q.type === 'short_answer') return q.acceptedAnswers.filter(a => a.trim()).length >= 1;
+      if (q.type === 'short_answer') return q.acceptedAnswers.filter(a => a.trim()).length >= 1;
       return true;
     }).map(q => ({
       ...q,
@@ -577,7 +575,7 @@ socket.on('host:question', (payload) => {
       document.getElementById('live-chart-wrap').style.display = 'block';
       renderLiveChart(options, options.map(() => 0), displayStyle || 'bars');
     }
-  } else if (type === 'fill_blank' || type === 'short_answer') {
+  } else if (type === 'short_answer') {
     document.getElementById('text-answer-host-wrap').style.display = 'block';
     document.getElementById('text-answer-host-wrap').innerHTML = mode === 'trivia'
       ? `<p style="color:var(--muted); font-size:0.95rem;">Players are typing their answers now…</p>`
@@ -606,7 +604,7 @@ socket.on('host:live_tally', ({ type, counts, responses }) => {
     renderWordCloud('wordcloud-wrap', responses);
   } else if (type === 'open_ended') {
     renderFeed('feed-wrap', responses);
-  } else if (type === 'fill_blank' || type === 'short_answer') {
+  } else if (type === 'short_answer') {
     const inline = document.getElementById('feed-wrap-inline');
     if (inline) renderFeed('feed-wrap-inline', responses);
   }
@@ -654,7 +652,7 @@ function showResults(data) {
       document.getElementById('results-lb-card').style.display = 'block';
       renderLeaderboard('results-lb', data.leaderboard);
     }
-  } else if (data.type === 'fill_blank' || data.type === 'short_answer') {
+  } else if (data.type === 'short_answer') {
     if (data.mode === 'trivia') {
       document.getElementById('results-text-card').style.display = 'block';
       document.getElementById('results-text-card').innerHTML = `
@@ -839,7 +837,72 @@ function showPodium(leaderboard) {
   });
 }
 
-// ── TIMER ────────────────────────────────────────────────────
+// ── RESULTS EXPORT ───────────────────────────────────────────
+
+async function downloadResults() {
+  if (!roomCode) { showToast('No game data to export'); return; }
+  const btn = document.getElementById('download-results-btn');
+  const originalText = btn.textContent;
+  btn.textContent = 'Preparing file…';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/results/${roomCode}`);
+    if (!res.ok) throw new Error('Could not fetch results — the room may have expired.');
+    const data = await res.json();
+    buildResultsWorkbook(data);
+  } catch (err) {
+    showToast(err.message || 'Failed to download results');
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+function buildResultsWorkbook(data) {
+  const rows = [];
+
+  // ── Section 1: Final leaderboard ──
+  rows.push(['FINAL LEADERBOARD']);
+  if (data.mode === 'trivia') {
+    rows.push(['Rank', 'Name', 'Score']);
+    data.leaderboard.forEach(p => rows.push([p.rank, p.name, p.score]));
+  } else {
+    rows.push(['This was a Poll/Survey game — no scoring.']);
+  }
+  rows.push([]);
+  rows.push([]);
+
+  // ── Section 2: Per-question breakdown ──
+  data.questions.forEach(q => {
+    rows.push([`Question ${q.index + 1}: ${q.text}`]);
+    rows.push([`Type: ${q.type.replace('_', ' ')}`]);
+    if (q.correctAnswer) rows.push([`Correct answer: ${q.correctAnswer}`]);
+    rows.push([]);
+
+    if (q.type === 'word_cloud' || q.type === 'open_ended') {
+      rows.push(['Name', 'Response']);
+      q.answers.forEach(a => rows.push([a.name, a.answerText]));
+    } else if (data.mode === 'trivia') {
+      rows.push(['Name', 'Answer', 'Correct?', 'Points']);
+      q.answers.forEach(a => rows.push([a.name, a.answerText, a.correct ? 'Yes' : 'No', a.points]));
+    } else {
+      rows.push(['Name', 'Answer']);
+      q.answers.forEach(a => rows.push([a.name, a.answerText]));
+    }
+    rows.push([]);
+    rows.push([]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 22 }, { wch: 40 }, { wch: 14 }, { wch: 10 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Results');
+
+  const filename = `quizdrop-results-${data.roomCode}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
 
 function startTimer(seconds) {
   clearInterval(timerInterval);
