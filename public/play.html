@@ -8,16 +8,16 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #0f0f13;
-    --surface: #1a1a23;
-    --surface2: #242430;
-    --border: rgba(255,255,255,0.08);
-    --accent: #7c5cfc;
-    --accent2: #fc5c7d;
-    --green: #2ecc71;
-    --red: #e74c3c;
-    --text: #f0f0f5;
-    --muted: rgba(240,240,245,0.5);
+    --bg: #F4F8FF;
+    --surface: #FFFFFF;
+    --surface2: #E9F0FC;
+    --border: rgba(12,42,77,0.12);
+    --accent: #2563EB;
+    --accent2: #E0563A;
+    --green: #1D9E75;
+    --red: #C0392B;
+    --text: #0C2A4D;
+    --muted: rgba(12,42,77,0.55);
     --radius: 14px;
   }
   html, body { height: 100%; }
@@ -52,14 +52,20 @@
   .q-timer.urgent { color: var(--red); }
   .timer-bar-wrap { width: 100%; height: 5px; background: var(--surface2); border-radius: 3px; margin-bottom: 1.5rem; overflow: hidden; }
   .timer-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 1s linear; }
-  .q-text { font-size: 1.15rem; font-weight: 700; line-height: 1.4; margin-bottom: 1.5rem; text-align: left; width: 100%; max-width: 380px; }
+  .q-text { font-size: 1.15rem; font-weight: 700; line-height: 1.4; margin-bottom: 1rem; text-align: left; width: 100%; max-width: 380px; }
+  .q-image { width: 100%; max-width: 380px; max-height: 200px; object-fit: cover; border-radius: 12px; margin-bottom: 1rem; }
   .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; width: 100%; max-width: 380px; }
+  .options-grid.tf-grid { grid-template-columns: 1fr 1fr; }
   .opt-btn { padding: 1rem 0.75rem; border-radius: 12px; border: none; font-size: 0.95rem; font-weight: 700; cursor: pointer; color: #fff; transition: transform 0.1s, opacity 0.2s; }
   .opt-btn:active { transform: scale(0.95); }
-  .opt-btn[data-idx="0"] { background: #7c5cfc; }
-  .opt-btn[data-idx="1"] { background: #fc5c7d; }
-  .opt-btn[data-idx="2"] { background: #f39c12; }
-  .opt-btn[data-idx="3"] { background: #2ecc71; }
+  .opt-btn[data-idx="0"] { background: #2563EB; }
+  .opt-btn[data-idx="1"] { background: #E0563A; }
+  .opt-btn[data-idx="2"] { background: #F2A93C; }
+  .opt-btn[data-idx="3"] { background: #1D9E75; }
+  .opt-btn[data-idx="4"] { background: #8E44AD; }
+  .opt-btn[data-idx="5"] { background: #16A085; }
+  .opt-btn[data-idx="6"] { background: #D35400; }
+  .opt-btn[data-idx="7"] { background: #2C3E50; }
   .opt-btn.dim { opacity: 0.3; pointer-events: none; }
   .opt-btn.selected { outline: 3px solid #fff; }
 
@@ -72,7 +78,7 @@
   .result-streak { font-size: 0.9rem; color: var(--muted); }
 
   .final-place { font-size: 4rem; margin-bottom: 0.5rem; }
-  .lb-list { list-style: none; width: 100%; max-width: 360px; text-align: left; margin-top: 1rem; }
+  .lb-list { list-style: none; width: 100%; max-width: 360px; text-align: left; margin-top: 1rem; max-height: 400px; overflow-y: auto; }
   .lb-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
   .lb-rank { width: 1.5rem; font-weight: 800; color: var(--muted); }
   .lb-name { flex: 1; }
@@ -108,9 +114,15 @@
   <div class="q-timer" id="q-timer">20</div>
   <div class="timer-bar-wrap"><div class="timer-bar" id="timer-bar" style="width:100%"></div></div>
   <div class="q-text" id="q-text"></div>
+  <img id="q-image" class="q-image" style="display:none;" />
 
   <div class="options-grid" id="options-grid" style="display:none;"></div>
   <button class="btn btn-primary" id="mc-submit-btn" onclick="submitMultiAnswer()" style="display:none; max-width:380px;">Submit →</button>
+
+  <div class="text-input-wrap" id="answer-input-wrap" style="display:none;">
+    <input type="text" id="answer-input" placeholder="Type your answer…" maxlength="200" />
+    <button class="btn btn-primary" onclick="submitAnswerText()" id="answer-submit-btn">Submit →</button>
+  </div>
 
   <div class="text-input-wrap" id="text-input-wrap" style="display:none;">
     <input type="text" id="word-input" placeholder="Type a word or short phrase…" maxlength="30" />
@@ -150,6 +162,7 @@ let timerInterval = null;
 let currentQType = 'multiple_choice';
 let gameMode = 'trivia';
 let textSubmitted = false;
+let answerTextSubmitted = false;
 let allowMultiple = false;
 let selectedIndices = [];
 let mcSubmitted = false;
@@ -185,24 +198,32 @@ function setError(msg) {
   document.getElementById('join-error').textContent = msg;
 }
 
-socket.on('game:question', ({ index, total, text, options, timeLimit, type, allowMultiple: am }) => {
+socket.on('game:question', ({ index, total, text, image, options, timeLimit, type, allowMultiple: am }) => {
   showScreen('question');
   textSubmitted = false;
   mcSubmitted = false;
+  answerTextSubmitted = false;
   selectedIndices = [];
   allowMultiple = !!am;
   currentQType = type;
   document.getElementById('q-meta').textContent = `Question ${index+1} of ${total}`;
   document.getElementById('q-text').textContent = text;
 
+  const imgEl = document.getElementById('q-image');
+  if (image) { imgEl.src = image; imgEl.style.display = 'block'; }
+  else { imgEl.style.display = 'none'; }
+
   document.getElementById('options-grid').style.display = 'none';
+  document.getElementById('options-grid').classList.remove('tf-grid');
   document.getElementById('mc-submit-btn').style.display = 'none';
+  document.getElementById('answer-input-wrap').style.display = 'none';
   document.getElementById('text-input-wrap').style.display = 'none';
   document.getElementById('open-input-wrap').style.display = 'none';
 
-  if (type === 'multiple_choice') {
+  if (type === 'multiple_choice' || type === 'true_false') {
     const grid = document.getElementById('options-grid');
     grid.style.display = 'grid';
+    if (type === 'true_false') grid.classList.add('tf-grid');
     grid.innerHTML = options.map((o, i) => `
       <button class="opt-btn" data-idx="${i}" onclick="${allowMultiple ? `toggleMultiSelect(${i})` : `submitAnswer(${i})`}">${escHtml(o)}</button>
     `).join('');
@@ -210,6 +231,11 @@ socket.on('game:question', ({ index, total, text, options, timeLimit, type, allo
       document.getElementById('mc-submit-btn').style.display = 'block';
       document.getElementById('mc-submit-btn').disabled = false;
     }
+  } else if (type === 'short_answer') {
+    document.getElementById('answer-input-wrap').style.display = 'block';
+    const input = document.getElementById('answer-input');
+    input.value = '';
+    document.getElementById('answer-submit-btn').disabled = false;
   } else if (type === 'word_cloud') {
     document.getElementById('text-input-wrap').style.display = 'block';
     const input = document.getElementById('word-input');
@@ -236,6 +262,21 @@ document.getElementById('open-input').addEventListener('input', e => {
 document.getElementById('word-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') submitText();
 });
+
+document.getElementById('answer-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitAnswerText();
+});
+
+function submitAnswerText() {
+  if (answerTextSubmitted) return;
+  const input = document.getElementById('answer-input');
+  const val = input.value.trim();
+  if (!val) return;
+  answerTextSubmitted = true;
+  socket.emit('player:submit_answer_text', { text: val });
+  document.getElementById('answer-submit-btn').disabled = true;
+  clearInterval(timerInterval);
+}
 
 function submitText() {
   if (textSubmitted) return;
@@ -276,17 +317,16 @@ socket.on('player:answer_result', ({ correct, points, streak }) => {
 socket.on('game:question_ended', (data) => {
   if (document.getElementById('screen-question').classList.contains('active')) {
     clearInterval(timerInterval);
-    if (data.type === 'multiple_choice' && data.mode === 'trivia') {
-      document.getElementById('result-icon').textContent = '⏱';
-      document.getElementById('result-title').textContent = "Time's up!";
+    document.getElementById('result-icon').textContent = '⏱';
+    document.getElementById('result-title').textContent = "Time's up!";
+    if ((data.type === 'multiple_choice' || data.type === 'true_false') && data.mode === 'trivia') {
       document.getElementById('result-pts').textContent = `Answer: ${data.correctText || ''}`;
-      document.getElementById('result-pts').style.color = 'var(--muted)';
+    } else if (data.type === 'short_answer' && data.mode === 'trivia') {
+      document.getElementById('result-pts').textContent = `Answer: ${data.correctText || ''}`;
     } else {
-      document.getElementById('result-icon').textContent = '⏱';
-      document.getElementById('result-title').textContent = "Time's up!";
       document.getElementById('result-pts').textContent = '';
-      document.getElementById('result-pts').style.color = 'var(--muted)';
     }
+    document.getElementById('result-pts').style.color = 'var(--muted)';
     document.getElementById('result-streak').textContent = '';
     showScreen('result');
   }
