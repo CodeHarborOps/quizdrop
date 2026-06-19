@@ -20,11 +20,11 @@ async function setupIO() {
       new Promise(r => pubClient.on('ready', r)),
       new Promise(r => subClient.on('ready', r)),
     ]);
-    io = new Server(server);
+    io = new Server(server, { maxHttpBufferSize: 5e6 });
     io.adapter(createAdapter(pubClient, subClient));
     console.log('Socket.io using Redis adapter — multi-instance ready');
   } else {
-    io = new Server(server);
+    io = new Server(server, { maxHttpBufferSize: 5e6 });
     console.log('Socket.io using in-memory adapter (set REDIS_URL for scale-out)');
   }
   attachHandlers();
@@ -119,10 +119,33 @@ async function getResponses(code, qIndex) {
   return await redisClient().lrange(`room:${code}:responses:${qIndex}`, 0, -1);
 }
 
+// Full per-player answer log per question — used for the end-of-game results export.
+// Unlike player.lastAnswerIndex (which gets overwritten every question), this is append-only.
+async function logAnswer(code, qIndex, entry) {
+  const key = `${code}:${qIndex}`;
+  const json = JSON.stringify(entry);
+  if (!REDIS_URL) {
+    if (!inMemoryAnswerLog[key]) inMemoryAnswerLog[key] = [];
+    inMemoryAnswerLog[key].push(json);
+    return;
+  }
+  await redisClient().rpush(`room:${code}:answerlog:${qIndex}`, json);
+  await redisClient().expire(`room:${code}:answerlog:${qIndex}`, ROOM_TTL);
+}
+
+async function getAnswerLog(code, qIndex) {
+  const key = `${code}:${qIndex}`;
+  let raw;
+  if (!REDIS_URL) raw = inMemoryAnswerLog[key] || [];
+  else raw = await redisClient().lrange(`room:${code}:answerlog:${qIndex}`, 0, -1);
+  return raw.map(r => JSON.parse(r));
+}
+
 // In-memory fallback stores
 const inMemoryRooms = {};
 const inMemoryPlayers = {};
 const inMemoryResponses = {};
+const inMemoryAnswerLog = {};
 const roomTimers = {};
 
 // ── HELPERS ───────────────────────────────────────────────────
@@ -135,6 +158,15 @@ function getLeaderboard(players) {
   return Object.values(players)
     .sort((a, b) => b.score - a.score)
     .map((p, i) => ({ rank: i + 1, name: p.name, score: p.score, streak: p.streak }));
+}
+
+function normalizeText(s) {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isTextAnswerCorrect(submitted, acceptedAnswers) {
+  const norm = normalizeText(submitted);
+  return (acceptedAnswers || []).some(a => normalizeText(a) === norm);
 }
 
 // ── SOCKET HANDLERS ───────────────────────────────────────────
@@ -252,17 +284,19 @@ function attachHandlers() {
       const player = players[socket.id];
       if (!player || player.answered) return;
       const q = room.questions[room.currentQ];
-      if (q.type !== 'multiple_choice') return;
+      if (q.type !== 'multiple_choice' && q.type !== 'true_false') return;
 
       player.answered = true;
+      let logEntry;
 
       if (room.mode === 'trivia') {
         const elapsed = (Date.now() - room.questionStart) / 1000;
         const correct = index === q.correct;
+        let points = 0;
         if (correct) {
           const timeBonus = Math.max(0, Math.floor((1 - elapsed / q.timeLimit) * 500));
           const streakBonus = Math.min(player.streak * 50, 200);
-          const points = 500 + timeBonus + streakBonus;
+          points = 500 + timeBonus + streakBonus;
           player.score += points;
           player.streak++;
           socket.emit('player:answer_result', { correct: true, points, streak: player.streak });
@@ -272,14 +306,71 @@ function attachHandlers() {
         }
         player.lastAnswerIndex = index;
         player.lastAnswerIndices = [index];
+        logEntry = {
+          name: player.name,
+          answerText: q.options[index] != null ? q.options[index] : '',
+          correct,
+          points,
+        };
       } else {
         // Survey mode — no scoring, supports multi-select
         const selected = q.allowMultiple ? (Array.isArray(indices) ? indices : [index]) : [index];
         player.lastAnswerIndex = selected[0];
         player.lastAnswerIndices = selected;
         socket.emit('player:answer_result', { correct: null, points: 0, streak: 0 });
+        logEntry = {
+          name: player.name,
+          answerText: selected.map(i => q.options[i]).filter(Boolean).join(', '),
+          correct: null,
+          points: 0,
+        };
       }
 
+      await logAnswer(code, room.currentQ, logEntry);
+      await savePlayer(code, socket.id, player);
+      await afterAnswer(code);
+    });
+
+    // Short answer — scored with flexible text matching
+    socket.on('player:submit_answer_text', async ({ text }) => {
+      const code = socket.data.roomCode;
+      if (!code) return;
+      const room = await getRoom(code);
+      if (!room || room.state !== 'question') return;
+      const players = await getPlayers(code);
+      const player = players[socket.id];
+      if (!player || player.answered) return;
+      const q = room.questions[room.currentQ];
+      if (q.type !== 'short_answer') return;
+
+      const clean = (text || '').trim().substring(0, 200);
+      player.answered = true;
+      player.lastTextAnswer = clean;
+
+      let logEntry;
+      if (room.mode === 'trivia') {
+        const elapsed = (Date.now() - room.questionStart) / 1000;
+        const correct = isTextAnswerCorrect(clean, q.acceptedAnswers);
+        let points = 0;
+        if (correct) {
+          const timeBonus = Math.max(0, Math.floor((1 - elapsed / q.timeLimit) * 500));
+          const streakBonus = Math.min(player.streak * 50, 200);
+          points = 500 + timeBonus + streakBonus;
+          player.score += points;
+          player.streak++;
+          socket.emit('player:answer_result', { correct: true, points, streak: player.streak });
+        } else {
+          player.streak = 0;
+          socket.emit('player:answer_result', { correct: false, points: 0, streak: 0 });
+        }
+        logEntry = { name: player.name, answerText: clean, correct, points };
+      } else {
+        socket.emit('player:answer_result', { correct: null, points: 0, streak: 0 });
+        await addResponse(code, room.currentQ, clean);
+        logEntry = { name: player.name, answerText: clean, correct: null, points: 0 };
+      }
+
+      await logAnswer(code, room.currentQ, logEntry);
       await savePlayer(code, socket.id, player);
       await afterAnswer(code);
     });
@@ -301,6 +392,7 @@ function attachHandlers() {
       player.answered = true;
       await savePlayer(code, socket.id, player);
       await addResponse(code, room.currentQ, clean);
+      await logAnswer(code, room.currentQ, { name: player.name, answerText: clean, correct: null, points: 0 });
       socket.emit('player:answer_result', { correct: null, points: 0, streak: 0 });
 
       await pushLiveTally(code);
@@ -344,12 +436,17 @@ async function pushLiveTally(code) {
   const room = await getRoom(code);
   if (!room || room.state !== 'question') return;
   const q = room.questions[room.currentQ];
-  if (q.type === 'multiple_choice') {
+  if (q.type === 'multiple_choice' || q.type === 'true_false') {
     const players = await getPlayers(code);
     const counts = q.options.map((_, i) =>
       Object.values(players).filter(p => p.answered && (p.lastAnswerIndices || [p.lastAnswerIndex]).includes(i)).length
     );
-    io.to(`host:${code}`).emit('host:live_tally', { type: 'multiple_choice', counts });
+    io.to(`host:${code}`).emit('host:live_tally', { type: q.type, counts });
+  } else if (q.type === 'short_answer') {
+    if (room.mode === 'survey') {
+      const responses = await getResponses(code, room.currentQ);
+      io.to(`host:${code}`).emit('host:live_tally', { type: q.type, responses });
+    }
   } else {
     const responses = await getResponses(code, room.currentQ);
     io.to(`host:${code}`).emit('host:live_tally', { type: q.type, responses });
@@ -381,6 +478,7 @@ async function advanceQuestion(code) {
     p.answered = false;
     p.lastAnswerIndex = null;
     p.lastAnswerIndices = [];
+    p.lastTextAnswer = null;
     await savePlayer(code, sid, p);
   }
 
@@ -389,8 +487,9 @@ async function advanceQuestion(code) {
     total: room.questions.length,
     type: q.type,
     text: q.text,
+    image: q.image || null,
     options: q.options || null,
-    timeLimit: q.timeLimit || 20,
+    timeLimit: q.timeLimit || 45,
     mode: room.mode,
     displayStyle: q.displayStyle || 'bars',
     allowMultiple: !!q.allowMultiple,
@@ -401,10 +500,11 @@ async function advanceQuestion(code) {
   io.to(`host:${code}`).emit('host:question', {
     ...payload,
     correct: room.mode === 'trivia' ? q.correct : null,
+    acceptedAnswers: room.mode === 'trivia' ? (q.acceptedAnswers || null) : null,
     playerCount: Object.keys(players).length,
   });
 
-  roomTimers[code] = setTimeout(() => endQuestion(code), (q.timeLimit || 20) * 1000);
+  roomTimers[code] = setTimeout(() => endQuestion(code), (q.timeLimit || 45) * 1000);
 }
 
 async function endQuestion(code) {
@@ -416,12 +516,12 @@ async function endQuestion(code) {
   const q = room.questions[room.currentQ];
   const players = await getPlayers(code);
 
-  if (q.type === 'multiple_choice') {
+  if (q.type === 'multiple_choice' || q.type === 'true_false') {
     const counts = q.options.map((_, i) =>
       Object.values(players).filter(p => p.answered && (p.lastAnswerIndices || [p.lastAnswerIndex]).includes(i)).length
     );
     io.to(code).emit('game:question_ended', {
-      type: 'multiple_choice',
+      type: q.type,
       correct: room.mode === 'trivia' ? q.correct : null,
       correctText: room.mode === 'trivia' ? q.options[q.correct] : null,
       options: q.options,
@@ -431,6 +531,28 @@ async function endQuestion(code) {
       leaderboard: room.mode === 'trivia' ? getLeaderboard(players).slice(0, 5) : null,
       mode: room.mode,
     });
+  } else if (q.type === 'short_answer') {
+    if (room.mode === 'trivia') {
+      const correctCount = Object.values(players).filter(p =>
+        p.answered && isTextAnswerCorrect(p.lastTextAnswer, q.acceptedAnswers)
+      ).length;
+      io.to(code).emit('game:question_ended', {
+        type: q.type,
+        correctText: (q.acceptedAnswers || [])[0] || '',
+        correctCount,
+        totalAnswered: Object.values(players).filter(p => p.answered).length,
+        leaderboard: getLeaderboard(players).slice(0, 5),
+        mode: room.mode,
+      });
+    } else {
+      const responses = await getResponses(code, room.currentQ);
+      io.to(code).emit('game:question_ended', {
+        type: q.type,
+        responses,
+        mode: room.mode,
+        leaderboard: null,
+      });
+    }
   } else {
     const responses = await getResponses(code, room.currentQ);
     io.to(code).emit('game:question_ended', {
@@ -445,10 +567,43 @@ async function endQuestion(code) {
 // ── HTTP ROUTES ───────────────────────────────────────────────
 
 app.use(express.static('public'));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 app.get('/play', (req, res) => {
   res.sendFile(__dirname + '/public/play.html');
+});
+
+// Full results bundle for the host's end-of-game Excel export.
+// Only the host can fetch this — verified by checking the room's hostId matches a live socket.
+app.get('/api/results/:code', async (req, res) => {
+  const code = (req.params.code || '').toUpperCase();
+  const room = await getRoom(code);
+  if (!room) return res.status(404).json({ error: 'Room not found or has expired' });
+
+  const players = await getPlayers(code);
+  const leaderboard = getLeaderboard(players);
+
+  const questionResults = [];
+  for (let i = 0; i < room.questions.length; i++) {
+    const q = room.questions[i];
+    const log = await getAnswerLog(code, i);
+    questionResults.push({
+      index: i,
+      type: q.type,
+      text: q.text,
+      correctAnswer: room.mode === 'trivia'
+        ? (q.type === 'multiple_choice' || q.type === 'true_false' ? q.options[q.correct] : (q.acceptedAnswers || []).join(', '))
+        : null,
+      answers: log,
+    });
+  }
+
+  res.json({
+    roomCode: code,
+    mode: room.mode,
+    leaderboard,
+    questions: questionResults,
+  });
 });
 
 // ── START ─────────────────────────────────────────────────────
