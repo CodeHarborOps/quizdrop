@@ -141,6 +141,51 @@ async function getAnswerLog(code, qIndex) {
   return raw.map(r => JSON.parse(r));
 }
 
+// ── SAVED QUIZZES ─────────────────────────────────────────────
+// Unlike rooms, saved quizzes have no TTL — they persist until explicitly deleted.
+const inMemorySavedQuizzes = {};
+
+function makeQuizId() {
+  return 'q_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+}
+
+async function saveQuiz(quiz) {
+  const id = quiz.id || makeQuizId();
+  const record = { ...quiz, id, updatedAt: Date.now() };
+  if (!REDIS_URL) {
+    inMemorySavedQuizzes[id] = record;
+    return record;
+  }
+  await redisClient().set(`quiz:${id}`, JSON.stringify(record));
+  await redisClient().sadd('quiz:index', id);
+  return record;
+}
+
+async function getQuiz(id) {
+  if (!REDIS_URL) return inMemorySavedQuizzes[id] || null;
+  const raw = await redisClient().get(`quiz:${id}`);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function listQuizzes() {
+  if (!REDIS_URL) {
+    return Object.values(inMemorySavedQuizzes).sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+  const ids = await redisClient().smembers('quiz:index');
+  if (!ids.length) return [];
+  const raws = await redisClient().mget(ids.map(id => `quiz:${id}`));
+  return raws.filter(Boolean).map(r => JSON.parse(r)).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function deleteQuiz(id) {
+  if (!REDIS_URL) {
+    delete inMemorySavedQuizzes[id];
+    return;
+  }
+  await redisClient().del(`quiz:${id}`);
+  await redisClient().srem('quiz:index', id);
+}
+
 // In-memory fallback stores
 const inMemoryRooms = {};
 const inMemoryPlayers = {};
@@ -604,6 +649,57 @@ app.get('/api/results/:code', async (req, res) => {
     leaderboard,
     questions: questionResults,
   });
+});
+
+// ── SAVED QUIZZES API ─────────────────────────────────────────
+
+app.get('/api/quizzes', async (req, res) => {
+  try {
+    const quizzes = await listQuizzes();
+    // Don't send full question payloads in the list view — just metadata
+    res.json(quizzes.map(q => ({
+      id: q.id,
+      name: q.name,
+      mode: q.mode,
+      questionCount: (q.questions || []).length,
+      updatedAt: q.updatedAt,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list saved quizzes' });
+  }
+});
+
+app.get('/api/quizzes/:id', async (req, res) => {
+  try {
+    const quiz = await getQuiz(req.params.id);
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+    res.json(quiz);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load quiz' });
+  }
+});
+
+app.post('/api/quizzes', async (req, res) => {
+  try {
+    const { id, name, mode, questions } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Quiz name is required' });
+    if (!Array.isArray(questions) || questions.length === 0) return res.status(400).json({ error: 'At least one question is required' });
+    if (mode !== 'trivia' && mode !== 'survey') return res.status(400).json({ error: 'Invalid mode' });
+
+    const record = await saveQuiz({ id, name: String(name).trim().substring(0, 80), mode, questions });
+    res.json({ ok: true, id: record.id, updatedAt: record.updatedAt });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save quiz' });
+  }
+});
+
+app.delete('/api/quizzes/:id', async (req, res) => {
+  try {
+    await deleteQuiz(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete quiz' });
+  }
 });
 
 // ── START ─────────────────────────────────────────────────────
